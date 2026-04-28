@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: derby-api
+    ports:
+      - "8000:8000"
+    environment:
+      - API_CORS_ORIGINS=${API_CORS_ORIGINS:-*}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////data/derby.db}
+    volumes:
+      # Persist SQLite snapshots and any cached data across restarts.
+      - ./data:/data
+    networks:
+      - derby
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: derby-web
+    ports:
+      - "3000:3000"
+    environment:
+      # Server-side calls from Next.js use the docker network hostname.
+      - API_BASE_URL=${API_BASE_URL:-http://api:8000}
+      # Browser-side calls go through the published host port.
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    depends_on:
+      - api
+    networks:
+      - derby
+    restart: unless-stopped
+
+networks:
+  derby:
+    driver: bridge

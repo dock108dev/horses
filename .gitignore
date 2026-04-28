@@ -1,0 +1,40 @@
+# AIDLC working directory
+.aidlc/runs/
+.aidlc/reports/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.npm/
+.pnpm-debug.log*
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local data — keep priors.json + .gitkeep, ignore generated DBs and snapshots
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/snapshots/
