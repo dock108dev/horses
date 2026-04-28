@@ -1,0 +1,103 @@
+[
+  {
+    "id": "fri-r8",
+    "day": "friday",
+    "raceNumber": 8,
+    "name": "Allowance Optional Claiming",
+    "surface": "dirt",
+    "distance": "6f",
+    "sequenceRole": "pick5-leg-1",
+    "horses": [
+      {"id": "fri-r8-h1", "raceId": "fri-r8", "post": 1, "name": "Storm Watch",   "morningLineOdds": "5/2"},
+      {"id": "fri-r8-h2", "raceId": "fri-r8", "post": 2, "name": "Stardust",      "morningLineOdds": "7/2"},
+      {"id": "fri-r8-h3", "raceId": "fri-r8", "post": 3, "name": "Iron Will",     "morningLineOdds": "4/1"},
+      {"id": "fri-r8-h4", "raceId": "fri-r8", "post": 4, "name": "Dusty Trail",   "morningLineOdds": "6/1"},
+      {"id": "fri-r8-h5", "raceId": "fri-r8", "post": 5, "name": "Lucky Strike",  "morningLineOdds": "8/1"},
+      {"id": "fri-r8-h6", "raceId": "fri-r8", "post": 6, "name": "Silver Lining", "morningLineOdds": "10/1"},
+      {"id": "fri-r8-h7", "raceId": "fri-r8", "post": 7, "name": "Copper Coin",   "morningLineOdds": "15/1"},
+      {"id": "fri-r8-h8", "raceId": "fri-r8", "post": 8, "name": "Final Hour",    "morningLineOdds": "20/1"}
+    ]
+  },
+  {
+    "id": "fri-r9",
+    "day": "friday",
+    "raceNumber": 9,
+    "name": "Maiden Special Weight",
+    "surface": "dirt",
+    "distance": "1 1/16M",
+    "sequenceRole": "pick5-leg-2",
+    "horses": [
+      {"id": "fri-r9-h1", "raceId": "fri-r9", "post": 1, "name": "Aspen Glow",    "morningLineOdds": "3/1"},
+      {"id": "fri-r9-h2", "raceId": "fri-r9", "post": 2, "name": "Storm Hill",    "morningLineOdds": "7/2"},
+      {"id": "fri-r9-h3", "raceId": "fri-r9", "post": 3, "name": "Soliloquy",     "morningLineOdds": "4/1"},
+      {"id": "fri-r9-h4", "raceId": "fri-r9", "post": 4, "name": "Big Mojo",      "morningLineOdds": "5/1"},
+      {"id": "fri-r9-h5", "raceId": "fri-r9", "post": 5, "name": "Vorpal Sword",  "morningLineOdds": "6/1"},
+      {"id": "fri-r9-h6", "raceId": "fri-r9", "post": 6, "name": "Cantana",       "morningLineOdds": "8/1"},
+      {"id": "fri-r9-h7", "raceId": "fri-r9", "post": 7, "name": "Strikina",      "morningLineOdds": "12/1"},
+      {"id": "fri-r9-h8", "raceId": "fri-r9", "post": 8, "name": "Lady Vi",       "morningLineOdds": "15/1"},
+      {"id": "fri-r9-h9", "raceId": "fri-r9", "post": 9, "name": "Halo Star",     "morningLineOdds": "20/1"}
+    ]
+  },
+  {
+    "id": "fri-r10",
+    "day": "friday",
+    "raceNumber": 10,
+    "name": "Edgewood Stakes",
+    "surface": "turf",
+    "distance": "1 1/16M",
+    "sequenceRole": "pick5-leg-3",
+    "horses": [
+      {"id": "fri-r10-h1", "raceId": "fri-r10", "post": 1, "name": "Hibernation",   "morningLineOdds": "3/1"},
+      {"id": "fri-r10-h2", "raceId": "fri-r10", "post": 2, "name": "Tuscan Sky",    "morningLineOdds": "4/1"},
+      {"id": "fri-r10-h3", "raceId": "fri-r10", "post": 3, "name": "Free Forever",  "morningLineOdds": "9/2"},
+      {"id": "fri-r10-h4", "raceId": "fri-r10", "post": 4, "name": "Solar Mighty",  "morningLineOdds": "5/1"},
+      {"id": "fri-r10-h5", "raceId": "fri-r10", "post": 5, "name": "Whitsy",        "morningLineOdds": "8/1"},
+      {"id": "fri-r10-h6", "raceId": "fri-r10", "post": 6, "name": "Lemon Punch",   "morningLineOdds": "10/1"},
+      {"id": "fri-r10-h7", "raceId": "fri-r10", "post": 7, "name": "Lobsta",        "morningLineOdds": "12/1"},
+      {"id": "fri-r10-h8", "raceId": "fri-r10", "post": 8, "name": "Lull",          "morningLineOdds": "15/1"}
+    ]
+  },
+  {
+    "id": "fri-r11",
+    "day": "friday",
+    "raceNumber": 11,
+    "name": "Kentucky Oaks Grade 1",
+    "surface": "dirt",
+    "distance": "1 1/8M",
+    "sequenceRole": "pick5-leg-4",
+    "horses": [
+      {"id": "fri-r11-h1",  "raceId": "fri-r11", "post": 1,  "name": "Immersive",          "morningLineOdds": "4/1"},
+      {"id": "fri-r11-h2",  "raceId": "fri-r11", "post": 2,  "name": "Quietside",          "morningLineOdds": "9/2"},
+      {"id": "fri-r11-h3",  "raceId": "fri-r11", "post": 3,  "name": "Bless the Broken",   "morningLineOdds": "5/1"},
+      {"id": "fri-r11-h4",  "raceId": "fri-r11", "post": 4,  "name": "Nitrogen",           "morningLineOdds": "6/1"},
+      {"id": "fri-r11-h5",  "raceId": "fri-r11", "post": 5,  "name": "Drifters Fate",      "morningLineOdds": "8/1"},
+      {"id": "fri-r11-h6",  "raceId": "fri-r11", "post": 6,  "name": "Wheres My Ring",     "morningLineOdds": "10/1"},
+      {"id": "fri-r11-h7",  "raceId": "fri-r11", "post": 7,  "name": "Hot Pink Jules",     "morningLineOdds": "12/1"},
+      {"id": "fri-r11-h8",  "raceId": "fri-r11", "post": 8,  "name": "La Cara",            "morningLineOdds": "15/1"},
+      {"id": "fri-r11-h9",  "raceId": "fri-r11", "post": 9,  "name": "Drum Roll Please",   "morningLineOdds": "15/1"},
+      {"id": "fri-r11-h10", "raceId": "fri-r11", "post": 10, "name": "Misirlou",           "morningLineOdds": "20/1"},
+      {"id": "fri-r11-h11", "raceId": "fri-r11", "post": 11, "name": "Quickick",           "morningLineOdds": "20/1"},
+      {"id": "fri-r11-h12", "raceId": "fri-r11", "post": 12, "name": "Slumber Party",      "morningLineOdds": "30/1"},
+      {"id": "fri-r11-h13", "raceId": "fri-r11", "post": 13, "name": "Magnificent Mile",   "morningLineOdds": "30/1"},
+      {"id": "fri-r11-h14", "raceId": "fri-r11", "post": 14, "name": "All Set Aglow",      "morningLineOdds": "50/1"}
+    ]
+  },
+  {
+    "id": "fri-r12",
+    "day": "friday",
+    "raceNumber": 12,
+    "name": "Eight Belles Stakes Grade 2",
+    "surface": "dirt",
+    "distance": "7f",
+    "sequenceRole": "pick5-leg-5",
+    "horses": [
+      {"id": "fri-r12-h1", "raceId": "fri-r12", "post": 1, "name": "Thorpedo Anna",  "morningLineOdds": "5/2"},
+      {"id": "fri-r12-h2", "raceId": "fri-r12", "post": 2, "name": "Tarifa",         "morningLineOdds": "4/1"},
+      {"id": "fri-r12-h3", "raceId": "fri-r12", "post": 3, "name": "Just FYI",       "morningLineOdds": "5/1"},
+      {"id": "fri-r12-h4", "raceId": "fri-r12", "post": 4, "name": "Power Squeeze",  "morningLineOdds": "6/1"},
+      {"id": "fri-r12-h5", "raceId": "fri-r12", "post": 5, "name": "Ball Talk",      "morningLineOdds": "10/1"},
+      {"id": "fri-r12-h6", "raceId": "fri-r12", "post": 6, "name": "Crystal Tee",    "morningLineOdds": "12/1"},
+      {"id": "fri-r12-h7", "raceId": "fri-r12", "post": 7, "name": "Flowing",        "morningLineOdds": "15/1"}
+    ]
+  }
+]

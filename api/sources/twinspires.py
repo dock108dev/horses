@@ -421,6 +421,11 @@ class TwinSpiresAdapter:
             resp = self.http_client.get(
                 url, headers=self._headers(), timeout=self.timeout
             )
+        # Treat 404 as "no payload yet" rather than an error: TwinSpires
+        # returns 404 for races that have not been drawn / posted, and the
+        # parsers already handle a None payload by returning an empty result.
+        if getattr(resp, "status_code", 200) == 404:
+            return None
         resp.raise_for_status()
         return resp.json()
 

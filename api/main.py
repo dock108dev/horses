@@ -17,6 +17,8 @@ request/response contract for no behavioral win. See
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import logging
 import os
 import re
@@ -34,6 +36,12 @@ from api.cache import OddsCache
 from api.model import PICK5_LEG_ROLES, Race, blend_race
 from api.refresh import build_card, poll_pick5_odds, races_with_latest_odds
 from api.sources.equibase import SOURCE_NAME as EQUIBASE_SOURCE, EquibaseAdapter
+from api.sources.fixture import (
+    SOURCE_NAME as FIXTURE_SOURCE,
+    fixture_mode_enabled,
+    load_card as load_fixture_card,
+    load_odds_records as load_fixture_odds,
+)
 from api.sources.pick5 import get_pick5_legs
 from api.sources.twinspires import (
     SOURCE_NAME as TWINSPIRES_SOURCE,
@@ -295,20 +303,49 @@ async def get_card(
 @app.post("/api/cards/{day}/refresh", response_model=Envelope)
 async def refresh_card(
     day: DayParam,
+    source: str | None = None,
     cache: OddsCache = Depends(get_cache),
     equibase: EquibaseAdapter = Depends(get_equibase_adapter),
     twinspires: TwinSpiresAdapter = Depends(get_twinspires_adapter),
 ) -> Envelope:
     iso_date = day_to_iso_date(day)
+    if fixture_mode_enabled(source_query=source):
+        try:
+            races = load_fixture_card(day)
+            result = validate_card(races, day)
+            if not result.valid:
+                return _stale_card_envelope(
+                    cache, iso_date, errors=result.errors
+                )
+            captured_at_ms = cache.store_card(iso_date, races, validated=True)
+            return Envelope(
+                data=_races_to_data(races),
+                stale=False,
+                cached_at=_iso_from_ms(captured_at_ms),
+                source=FIXTURE_SOURCE,
+                errors=[],
+            )
+        except Exception as exc:
+            _log.exception("Fixture card refresh failed for day=%s", day)
+            return _stale_card_envelope(
+                cache, iso_date, errors=[LIVE_SOURCE_ERROR, _redact_exc(exc)]
+            )
     year = int(iso_date.split("-", 1)[0])
     try:
         legs = get_pick5_legs(year=year, day=day)
-        races = build_card(
-            day=day,
-            iso_date=iso_date,
-            legs=legs,
-            equibase=equibase,
-            twinspires=twinspires,
+        # build_card is sync and performs blocking I/O (httpx GETs, rate-limit
+        # sleeps). Run it in a worker thread so the event-loop thread stays
+        # free for /api/health, /docs, and other concurrent requests during
+        # the 60-240s refresh window.
+        races = await asyncio.to_thread(
+            functools.partial(
+                build_card,
+                day=day,
+                iso_date=iso_date,
+                legs=legs,
+                equibase=equibase,
+                twinspires=twinspires,
+            )
         )
         result = validate_card(races, day)
         if not result.valid:
@@ -416,6 +453,7 @@ async def get_odds(
 @app.post("/api/odds/{day}/refresh", response_model=Envelope)
 async def refresh_odds(
     day: DayParam,
+    source: str | None = None,
     cache: OddsCache = Depends(get_cache),
     twinspires: TwinSpiresAdapter = Depends(get_twinspires_adapter),
 ) -> Envelope:
@@ -429,13 +467,46 @@ async def refresh_odds(
             source=CACHE_SOURCE,
             errors=[NO_CARD_ERROR],
         )
+    if fixture_mode_enabled(source_query=source):
+        try:
+            captured_at_ms = int(time.time() * 1000)
+            records = load_fixture_odds(
+                day, cached_card.races, captured_at_ms=captured_at_ms
+            )
+            cache.store_odds_batch(records)
+            updated = races_with_latest_odds(cached_card.races, cache)
+            result = validate_card(updated, day)
+            if not result.valid:
+                return _stale_odds_envelope(
+                    cache, cached_card.races, errors=result.errors
+                )
+            return Envelope(
+                data=_odds_payload(updated, cache),
+                stale=False,
+                cached_at=_iso_from_ms(captured_at_ms),
+                source=FIXTURE_SOURCE,
+                errors=[],
+            )
+        except Exception as exc:
+            _log.exception("Fixture odds refresh failed for day=%s", day)
+            return _stale_odds_envelope(
+                cache,
+                cached_card.races,
+                errors=[LIVE_SOURCE_ERROR, _redact_exc(exc)],
+            )
     try:
         captured_at_ms = int(time.time() * 1000)
-        records = poll_pick5_odds(
-            cached_card.races,
-            iso_date=iso_date,
-            twinspires=twinspires,
-            captured_at_ms=captured_at_ms,
+        # poll_pick5_odds blocks on TwinSpires HTTP calls plus the per-race
+        # 30s odds-poll floor; offload to a worker thread so concurrent
+        # requests are not stalled. See refresh_card for the same pattern.
+        records = await asyncio.to_thread(
+            functools.partial(
+                poll_pick5_odds,
+                cached_card.races,
+                iso_date=iso_date,
+                twinspires=twinspires,
+                captured_at_ms=captured_at_ms,
+            )
         )
         cache.store_odds_batch(records)
         updated = races_with_latest_odds(cached_card.races, cache)

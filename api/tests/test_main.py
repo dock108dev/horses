@@ -10,6 +10,8 @@ layer that obscures what each test sets up. See
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -571,8 +573,212 @@ def test_envelope_keys_present_on_every_endpoint(
             app.dependency_overrides.clear()
 
 
+# ---------------------------------------------------------------------------
+# Event-loop responsiveness during long-running refresh
+# ---------------------------------------------------------------------------
+
+
+def test_health_responsive_during_card_refresh(tmp_data_dir: Path) -> None:
+    """A blocking source must not freeze the event loop.
+
+    Equibase's real adapter sleeps 3s between legs and TwinSpires can
+    block 15s on each XHR. If the async refresh handler called those
+    sync helpers directly, every concurrent request — including the
+    health check — would wait for the full refresh to finish. The fix
+    offloads the work to a worker thread so the loop stays free.
+    """
+    fetch_started = threading.Event()
+    release_fetch = threading.Event()
+
+    class BlockingEquibase:
+        def fetch_race(
+            self, iso_date: str, race_number: int, *, day: str
+        ) -> Race | None:
+            fetch_started.set()
+            release_fetch.wait(timeout=5)
+            return None
+
+    fake_eq = BlockingEquibase()
+    fake_ts = FakeTwinSpires()
+    for tc in _client_with_overrides(
+        tmp_data_dir, equibase=fake_eq, twinspires=fake_ts
+    ):
+        try:
+            refresh_thread = threading.Thread(
+                target=lambda: tc.post("/api/cards/saturday/refresh"),
+                daemon=True,
+            )
+            refresh_thread.start()
+            assert fetch_started.wait(timeout=2.0), (
+                "refresh handler never reached the blocking source — "
+                "asyncio.to_thread offload may be wired incorrectly"
+            )
+            start = time.monotonic()
+            health = tc.get("/api/health")
+            elapsed = time.monotonic() - start
+            assert health.status_code == 200
+            assert elapsed < 1.0, (
+                f"/api/health blocked for {elapsed:.2f}s while card refresh "
+                "was in flight — event loop is not freed by asyncio.to_thread"
+            )
+            release_fetch.set()
+            refresh_thread.join(timeout=5.0)
+            assert not refresh_thread.is_alive()
+        finally:
+            release_fetch.set()
+            app.dependency_overrides.clear()
+
+
 def test_day_to_iso_date_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DERBY_FRIDAY_DATE", "2027-04-30")
     assert day_to_iso_date("friday") == "2027-04-30"
     monkeypatch.delenv("DERBY_FRIDAY_DATE")
     assert day_to_iso_date("friday") == DEFAULT_DERBY_DATES["friday"]
+
+
+# ---------------------------------------------------------------------------
+# Fixture mode (?source=fixture / PICK5_DATA_MODE=fixture)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "day, expected_legs",
+    [("friday", FRIDAY_LEGS), ("saturday", SATURDAY_LEGS)],
+)
+def test_refresh_card_fixture_mode_query_param(
+    client: TestClient, day: str, expected_legs: list[int]
+) -> None:
+    """Fixture mode must serve a 5-leg card without invoking live adapters.
+
+    Validation runs the same way as live, the snapshot is persisted to
+    SQLite, and the envelope reports ``source: "fixture"`` so the
+    operator (and frontend) can see where the data came from.
+    """
+    start = time.monotonic()
+    resp = client.post(f"/api/cards/{day}/refresh?source=fixture")
+    elapsed = time.monotonic() - start
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "fixture"
+    assert body["stale"] is False
+    assert body["errors"] == []
+    assert body["cached_at"] is not None
+    assert len(body["data"]) == 5
+    assert [r["raceNumber"] for r in body["data"]] == expected_legs
+    for race in body["data"]:
+        assert len(race["horses"]) > 0
+    assert elapsed < 0.5, f"fixture refresh took {elapsed:.3f}s"
+
+
+def test_refresh_card_fixture_mode_env_var(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PICK5_DATA_MODE", "fixture")
+    resp = client.post("/api/cards/friday/refresh")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "fixture"
+    assert len(body["data"]) == 5
+
+
+def test_get_card_after_fixture_refresh_returns_cached(
+    client: TestClient,
+) -> None:
+    refresh = client.post("/api/cards/friday/refresh?source=fixture")
+    assert refresh.status_code == 200
+    follow_up = client.get("/api/cards/friday")
+    assert follow_up.status_code == 200
+    body = follow_up.json()
+    assert body["stale"] is False
+    assert len(body["data"]) == 5
+    assert body["cached_at"] is not None
+    assert body["errors"] == []
+
+
+def test_refresh_odds_fixture_mode(client: TestClient) -> None:
+    """Fixture odds load must populate live odds for every horse in the card."""
+    card = client.post("/api/cards/friday/refresh?source=fixture")
+    assert card.status_code == 200
+    odds = client.post("/api/odds/friday/refresh?source=fixture")
+    assert odds.status_code == 200
+    body = odds.json()
+    assert body["source"] == "fixture"
+    assert body["stale"] is False
+    assert body["errors"] == []
+    assert len(body["data"]) == 5
+    for race_payload in body["data"]:
+        # Every fixture card horse has a matching odds record.
+        expected = sum(
+            1
+            for r in card.json()["data"]
+            if r["raceNumber"] == race_payload["raceNumber"]
+            for h in r["horses"]
+            if not h.get("scratched")
+        )
+        assert len(race_payload["runners"]) == expected
+
+
+def test_simulate_after_fixture_refresh_returns_data(
+    client: TestClient,
+) -> None:
+    client.post("/api/cards/friday/refresh?source=fixture")
+    resp = client.post("/api/simulate/friday", json={"n_iterations": 500})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data"] is not None
+    assert body["errors"] == []
+    assert body["source"] == "sim"
+
+
+def test_tickets_after_fixture_refresh_returns_variants(
+    client: TestClient,
+) -> None:
+    client.post("/api/cards/friday/refresh?source=fixture")
+    resp = client.post(
+        "/api/tickets/friday/build",
+        json={"budget_dollars": 96.0, "base_unit": 0.50},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data"] is not None
+    assert body["source"] == "tickets"
+    assert len(body["data"]["variants"]) > 0
+
+
+def test_fixture_mode_makes_no_network_calls(client: TestClient) -> None:
+    """Equibase / TwinSpires are overridden with stubs that raise on use.
+
+    If fixture mode incorrectly fell through to the live path, the stubs
+    would fire — surfacing a stale envelope rather than the success
+    envelope this test asserts.
+    """
+
+    class ExplodingEquibase:
+        def fetch_race(self, *a: object, **kw: object) -> Race | None:
+            raise AssertionError("fixture mode must not hit equibase")
+
+    class ExplodingTwinSpires:
+        def fetch_program(self, *a: object, **kw: object) -> Race | None:
+            raise AssertionError("fixture mode must not hit twinspires program")
+
+        def fetch_odds(self, *a: object, **kw: object) -> list[Any]:
+            raise AssertionError("fixture mode must not hit twinspires odds")
+
+    app.dependency_overrides[get_equibase_adapter] = lambda: ExplodingEquibase()
+    app.dependency_overrides[get_twinspires_adapter] = (
+        lambda: ExplodingTwinSpires()
+    )
+    try:
+        resp = client.post("/api/cards/saturday/refresh?source=fixture")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["source"] == "fixture"
+        assert body["stale"] is False
+
+        resp = client.post("/api/odds/saturday/refresh?source=fixture")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["source"] == "fixture"
+        assert body["stale"] is False
+    finally:
+        app.dependency_overrides.clear()

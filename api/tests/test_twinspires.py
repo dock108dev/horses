@@ -262,6 +262,37 @@ def test_403_from_httpx_swaps_to_curl_cffi_fallback() -> None:
     assert "/ts-res/api/racing/program" in fallback.calls[1]["url"]
 
 
+def test_404_returns_none_without_raising() -> None:
+    """Pre-draw races return 404 from TwinSpires; treat as "no payload".
+
+    Before entries are posted, ``/program`` returns 404 for every race.
+    The adapter should surface that as ``None`` so callers can continue
+    the card refresh from Equibase data alone, instead of crashing the
+    whole refresh with an unhandled ``HTTPStatusError``.
+    """
+    http = FakeHttp(
+        [
+            FakeResponse(json_body={}),  # homepage seed
+            FakeResponse(status_code=404, text="not found"),
+        ]
+    )
+    adapter = TwinSpiresAdapter(http_client=http, fallback_client=None)
+    assert adapter.fetch_program("2026-05-02", 12, day="saturday") is None
+
+
+def test_404_on_odds_returns_empty_list() -> None:
+    http = FakeHttp(
+        [
+            FakeResponse(json_body={}),  # homepage seed
+            FakeResponse(status_code=404, text="not found"),
+        ]
+    )
+    adapter = TwinSpiresAdapter(
+        http_client=http, fallback_client=None, min_odds_interval=0.0
+    )
+    assert adapter.fetch_odds("2026-05-02", 12) == []
+
+
 def test_403_without_fallback_raises() -> None:
     primary = FakeHttp(
         [
