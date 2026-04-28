@@ -1,558 +1,452 @@
-100% — then revise the whole thing:
-
-# BRAINDUMP.md — Derby Weekend Pick 5 Browser App, Data-First Version
-## Hard Requirement
-Manual data entry is not acceptable.
-This app only works if it can automatically pull or refresh:
-- Churchill / Kentucky Derby weekend race cards
-- Friday Pick 5 sequence
-- Saturday Pick 5 sequence
-- horses
-- post positions
-- jockeys
-- trainers
-- morning line odds
-- current/live odds
-- race number
-- race time
-- surface/distance if available
-Manual override is allowed.
-Manual entry as the main workflow is not.
+# BRAINDUMP.md — PASS 2 (EDGE ENGINE w/ HISTORICAL PRIORS + ODDS MOVEMENT)
 ---
-## Goal
-Build a personal iPad browser app for Derby weekend.
-Primary use case:
-> I open the app during Friday/Saturday Derby weekend, hit refresh, and it updates the Pick 5 races and odds. Then I run simulations and build tickets.
-This is for me only.
-It should not place bets.
-It should not require me to type in every horse.
+# 0. PASS 2 GOAL
+PASS 1 = functional  
+PASS 2 = **structural edge vs the betting pool**
+PASS 2 upgrades the system from:
+> “build valid tickets”
+to:
+> **“build tickets that exploit market bias, public behavior, and race context”**
 ---
-## Data Sources
-### Preferred Source 1 — TwinSpires / KentuckyDerby pages
-TwinSpires and KentuckyDerby.com publish official Derby odds, race info, post positions, jockeys, trainers, and live odds pages around Derby weekend. KentuckyDerby.com says morning line odds shift to near-time live odds once advance wagering opens. TwinSpires has official Kentucky Derby odds pages with horse, jockey, trainer, post, race, and odds data.  [oai_citation:0‡Kentucky Derby](https://www.kentuckyderby.com/wager/live-odds/?utm_source=chatgpt.com)
-### Preferred Source 2 — Equibase
-Equibase is the official source for racing entries, results, statistics, and mobile racing data. Use it for race cards / entries / results where possible.  [oai_citation:1‡Equibase](https://www.equibase.com/?utm_source=chatgpt.com)
-### Source 3 — Public odds / article fallback
-Use public pages only as backup for Derby/Oaks headline races or sanity checks. Not ideal for full Pick 5 cards.
----
-## Important Data Reality
-The hardest part is not the simulation.
-The hardest part is getting reliable race-card and odds data without manual work.
-So v1 should be designed like this:
+# 1. CORE SHIFT (DO NOT MISS THIS)
+PASS 1 assumed:
 ```text
-Browser app
+odds ≈ truth
+
+PASS 2 assumes:
+
+odds ≈ starting point
+historical + context ≠ priced correctly
+
+So:
+
+final_prob =
+  odds_prob
+  + historical_adjustments
+  + odds_movement_signal
+  + chaos_context
+
+⸻
+
+2. PASS 2 ARCHITECTURE ADDITIONS
+
+Add 3 new modules:
+
+historical_priors/
+odds_tracker/
+edge_model/
+
+Updated flow:
+
+Scraped Odds
   ↓
-Local backend scraper/API
+Normalize
   ↓
-Source adapters
-  - TwinSpires adapter
-  - KentuckyDerby adapter
-  - Equibase adapter
+Apply Historical Priors
   ↓
-Normalized race card + odds snapshot
+Apply Odds Movement Adjustments
   ↓
-Simulation + ticket builder
-
-Do not scrape directly from the browser.
-
-Use a tiny local backend so CORS and parsing do not wreck the app.
-
-⸻
-
-Minimal Architecture
-
-derby-p5/
-  api/
-    main.py
-    sources/
-      twinspires.py
-      kentuckyderby.py
-      equibase.py
-    normalize.py
-    cache.py
-    model.py
-    sim.py
-    tickets.py
-  web/
-    app/
-      page.tsx
-      sequence/[day]/page.tsx
-    components/
-      RaceCard.tsx
-      HorseRow.tsx
-      OddsBadge.tsx
-      TicketBuilder.tsx
-      SimulationSummary.tsx
-
-Run locally:
-
-docker compose up
-
-Open on iPad:
-
-http://mac-mini.local:3000
-
-Or through Tailscale.
+Final Probability Model
+  ↓
+Race Classification
+  ↓
+Budget Allocation Engine
+  ↓
+Ticket Builder
 
 ⸻
 
-Backend Endpoints
+3. HISTORICAL PRIORS (THE MOST IMPORTANT ADD)
 
-GET /api/cards/friday
-GET /api/cards/saturday
-POST /api/cards/friday/refresh
-POST /api/cards/saturday/refresh
-GET /api/odds/friday
-GET /api/odds/saturday
-POST /api/odds/friday/refresh
-POST /api/odds/saturday/refresh
-POST /api/simulate/friday
-POST /api/simulate/saturday
-POST /api/tickets/friday/build
-POST /api/tickets/saturday/build
+3.1 Philosophy
+
+We are NOT training a model.
+
+We are injecting:
+
+known structural biases in horse racing markets
 
 ⸻
 
-Normalized Data Model
-
-type Race = {
-  id: string
-  day: "friday" | "saturday"
-  track: "Churchill Downs"
-  raceNumber: number
-  postTime?: string
-  name?: string
-  surface?: string
-  distance?: string
-  sequenceRole?: "pick5-leg-1" | "pick5-leg-2" | "pick5-leg-3" | "pick5-leg-4" | "pick5-leg-5"
-  horses: Horse[]
-}
-type Horse = {
-  id: string
-  raceId: string
-  post: number
-  name: string
-  jockey?: string
-  trainer?: string
-  morningLineOdds?: string
-  currentOdds?: string
-  scratched?: boolean
-  source?: string
-  marketProbability?: number
-  morningLineProbability?: number
-  modelProbability?: number
-  finalProbability?: number
-  userTag?: "single" | "A" | "B" | "C" | "toss" | "chaos" | "boost" | "fade"
-}
-
-⸻
-
-The App Flow
-
-Step 1 — Refresh Data
-
-I open Friday or Saturday.
-
-Tap:
-
-Refresh Card + Odds
-
-The backend pulls:
-
-* race list
-* Pick 5 sequence
-* entries
-* post positions
-* ML odds
-* live/current odds
-* scratches if available
-
-Then stores a local snapshot.
-
-⸻
-
-Step 2 — Normalize Odds
-
-Convert odds to implied probability.
-
-Examples:
-
-3-1 = 25%
-5-2 = 28.57%
-10-1 = 9.09%
-
-Then normalize inside each race.
-
-Because pari-mutuel odds include takeout/pool effects, the race probabilities need to sum to 100%.
-
-⸻
-
-Step 3 — Blend With Model
-
-Default:
-
-final_probability =
-  current_odds_probability * 0.70
-+ morning_line_probability * 0.20
-+ model_prior_probability * 0.10
-
-If model prior is missing:
-
-final_probability =
-  current_odds_probability * 0.80
-+ morning_line_probability * 0.20
-
-Then apply my tags.
-
-⸻
-
-Model v1
-
-The model does not need to be fancy.
-
-It can be a local JSON prior file produced before Derby weekend.
-
-Example:
+3.2 historical_priors.json
 
 {
-  "race_type_priors": {
-    "large_field_dirt_route": {
-      "favorite_soften": 0.9,
-      "mid_price_boost": 1.08,
-      "longshot_boost": 1.03
-    },
-    "small_field_chalk": {
-      "favorite_soften": 1.0,
-      "mid_price_boost": 1.0
-    }
+  "field_size": {
+    "6-7": { "favorite_win_rate": 0.38 },
+    "8-10": { "favorite_win_rate": 0.32 },
+    "11-14": { "favorite_win_rate": 0.26 },
+    "15+": { "favorite_win_rate": 0.22 }
   },
-  "field_size_priors": {
-    "6-7": { "favoriteWinRate": 0.38 },
-    "8-10": { "favoriteWinRate": 0.32 },
-    "11-14": { "favoriteWinRate": 0.25 },
-    "15+": { "favoriteWinRate": 0.18 }
+  "odds_rank": {
+    "1": { "multiplier": 0.94 },
+    "2": { "multiplier": 1.00 },
+    "3": { "multiplier": 1.02 },
+    "4-6": { "multiplier": 1.08 },
+    "7+": { "multiplier": 0.90 }
+  },
+  "race_type": {
+    "turf_sprint": { "chaos": 1.20 },
+    "maiden": { "chaos": 1.25 },
+    "derby": { "chaos": 1.35 },
+    "default": { "chaos": 1.00 }
   }
 }
 
-This is enough for v1.
+⸻
 
-Actual ML can come later.
+3.3 Applying Historical Adjustments
+
+Step 1 — Convert odds → probability
+
+Step 2 — Apply rank multiplier
+
+adjusted_prob = odds_prob × odds_rank_multiplier
+
+Step 3 — Apply field size adjustment
+
+Instead of raw favorite strength:
+
+if field_size >= 14:
+  compress top probabilities
+  expand mid-tier probabilities
+
+Step 4 — Apply race-type chaos
+
+flatten_distribution(chaos_factor)
+
+Step 5 — Normalize
 
 ⸻
 
-What “Trained Model” Means For v1
+3.4 What This Actually Does
 
-For this first build, trained model means:
-
-historical priors + odds calibration + race shape modifiers
-
-Not a giant ML system.
-
-Inputs:
-
-* field size
-* current odds rank
-* morning line rank
-* race type
-* distance/surface
-* Derby/Oaks/high-chaos flag
-* odds drift if multiple snapshots exist
-
-Outputs:
-
-* model prior probability
-* chaos score
-* overbet/value flag
+* slightly depresses favorites in big fields
+* boosts mid-tier horses (your B tier)
+* flattens chaotic races
+* forces spreads where needed
+* protects you from false singles
 
 ⸻
 
-Odds Snapshot Tracking
+4. ODDS MOVEMENT ENGINE (PROJECTED CLOSING LINE)
 
-This matters.
+4.1 Store Snapshots
 
-The app should save odds snapshots over time:
-
-type OddsSnapshot = {
-  timestamp: string
-  day: "friday" | "saturday"
-  raceNumber: number
-  horseId: string
-  odds: string
-  impliedProbability: number
-  source: string
+OddsSnapshot {
+  timestamp
+  race
+  horse
+  odds
 }
 
-Why:
+Track:
 
-* odds movement can matter
-* late money matters
-* I want to see if a horse is getting crushed
-* I want to know if a favorite is getting overbet
-
-UI:
-
-Horse A
-ML: 8-1
-9am: 10-1
-11am: 7-1
-Current: 4-1
-Flag: taking money
+T-120 min
+T-60 min
+T-30 min
+Current
 
 ⸻
 
-Required UI
+4.2 Compute Velocity
 
-Each day page:
-
-Friday Pick 5
-[Refresh Card]
-[Refresh Odds]
-[Run Sim]
-[Build Tickets]
-Last card refresh: 10:42 AM
-Last odds refresh: 11:08 AM
-Source: TwinSpires / KentuckyDerby / Equibase
-Budget: $96
-Base Unit: $0.50
-
-Each race:
-
-Race 8 — Leg 1
-Surface/Distance
-Post Time
-Post | Horse | ML | Current | Drift | Market % | Final % | Tag | Flags
+velocity = change in implied probability over time
 
 ⸻
 
-Manual Override, But Not Manual Entry
+4.3 Movement Rules
 
-I can manually override:
-
-* tag
-* toss
-* single
-* boost/fade
-* current odds if scraper fails for one horse
-* scratch status
-
-But I should not be typing the entire card.
-
-Manual override is a safety valve only.
+if favorite shortens:
+  weak signal (expected)
+if mid-tier (5-1 to 12-1) shortens:
+  strong signal → BOOST
+if longshot shortens:
+  chaos signal → CONDITIONAL BOOST
+if drifting:
+  reduce confidence
 
 ⸻
 
-Ticket Builder
+4.4 Apply Adjustment
 
-Primary output:
+movement_adjustment =
+  velocity × movement_weight
 
-* $48 ticket
-* $96 ticket
-* $144 ticket
-* $192 ticket
-* custom
+Then:
 
-Ticket construction should use:
+final_prob += movement_adjustment
 
-* A/B/C tags
-* final probabilities
-* chaos score
-* budget
-* single candidates
-* overbet favorite flags
-* separator horses
+Normalize again.
 
 ⸻
 
-Ticket Logic
+5. HORSE EDGE MODEL
 
-Generate:
+Each horse gets:
 
-Main Ticket
-
-Mostly A horses.
-
-A / A / A / A / A
-
-Backup Tickets
-
-One B allowed.
-
-B / A / A / A / A
-A / B / A / A / A
-A / A / B / A / A
-A / A / A / B / A
-A / A / A / A / B
-
-Chaos Ticket
-
-Uses value/separator horses.
-
-Good for:
-
-* Derby leg
-* Oaks leg
-* turf chaos
-* big field races
+true_prob (after adjustments)
+market_prob (from odds)
+ownership_proxy
+edge_score
+confidence_score
 
 ⸻
 
-Simulation
+5.1 Ownership Proxy
 
-Run 25,000–100,000 simulations per sequence.
+Approximate:
 
-For each sim:
+ownership =
+  function(odds rank + favorite bias)
 
-for each leg:
-  pick winner using final probabilities
-combine 5 winners
-evaluate generated tickets
+Rules:
 
-Output:
-
-Ticket A
-Cost: $72
-Estimated hit rate: 2.4%
-Chalkiness: Medium
-Chaos coverage: Medium
-Separator coverage: Good
+* rank 1 = very high ownership
+* rank 2–3 = high
+* rank 4–6 = medium (sweet spot)
+* longshots = low but noisy
 
 ⸻
 
-Flags
+5.2 Edge Score
 
-The app should flag:
+edge = true_prob - market_prob
+
+Then adjust:
+
+edge_score =
+  edge
+  + ownership_discount
+  + chaos_bonus
+
+⸻
+
+5.3 Horse Buckets (Upgraded)
+
+CORE (A)
+VALUE (B)
+CHAOS (C)
+TRAP (overbet favorite)
+DEAD (toss)
+
+⸻
+
+6. RACE CLASSIFICATION (UPDATED)
+
+Use adjusted probabilities:
+
+Compute:
+
+top_prob
+second_prob
+entropy
+
+Classify:
+
+KEY
+TIGHT
+MID
+CHAOS
+
+Now more accurate because:
+
+* favorites already adjusted
+* chaos already modeled
+
+⸻
+
+7. BUDGET ALLOCATION ENGINE (UNCHANGED CORE, BETTER INPUT)
+
+Still:
+
+KEY → 1
+TIGHT → 2
+MID → 3
+CHAOS → 5–7
+
+But now classification is smarter.
+
+⸻
+
+8. SPEND EFFICIENCY MODEL (NEW)
+
+For each horse:
+
+marginal_value =
+  increase in race win probability
+  ÷ increase in ticket cost
+
+For each race:
+
+best_spend_target =
+  race with highest marginal_value
+
+Use this to:
+
+* decide where to add horses
+* decide where to cut
+
+⸻
+
+9. TICKET OPTIMIZATION (UPGRADED)
+
+Now maximize:
+
+score =
+  win_probability
+  × payout_score
+  × confidence
+
+⸻
+
+9.1 Payout Score
+
+Proxy:
+
+payout_score =
+  inverse(chalkiness)
+
+Chalkiness:
+
+* number of high-ownership horses
+* number of favorites
+
+⸻
+
+9.2 Confidence
+
+From:
+
+* probability strength
+* odds movement
+* race stability
+
+⸻
+
+10. FINAL TICKET OUTPUT
+
+Return:
+
+Ticket A — Balanced
+Ticket B — Safer
+Ticket C — Upside
+
+Each includes:
+
+Cost
+Hit Rate
+Edge Score
+Confidence
+Chalk Exposure
+Notes
+
+⸻
+
+11. STRATEGY OUTPUT (NEW — IMPORTANT)
+
+Show:
+
+Race Strategy
+R8: SINGLE (strong, low chaos)
+R9: 2-DEEP (clear top 2)
+R10: CHAOS SPREAD (value concentrated)
+R11: MID
+R12: MAX CHAOS (Derby)
+
+⸻
+
+12. FLAGS (EXPANDED)
 
 Overbet favorite
-Useful value
-Possible public single
-Good single candidate
-Bad single candidate
+Value horse
+Separator candidate
+Public single
+Steam horse
+Cold horse
 Chaos race
 Spread race
-Likely separator
-Taking money
-Cold on board
-Scratch
-Missing odds
+Trap favorite
 
 ⸻
 
-Scraper Validation
+13. VALIDATION LOOP (UPDATED)
 
-This is critical.
+13.1 Historical Adjustment
 
-After refresh:
+* probabilities still sum to 100%
+* no horse inflated unrealistically
 
-* confirm every race has horses
-* confirm each horse has post/name
-* confirm odds parsed
-* confirm no duplicate horses
-* confirm scratched horses are handled
-* confirm probabilities normalize to 100%
-* confirm all 5 Pick 5 legs are loaded
+13.2 Movement
 
-If validation fails:
+* velocity reasonable
+* no extreme spikes
 
-Data incomplete: Race 9 missing odds for 2 horses
-Use cached snapshot or retry
+13.3 Tickets
 
-⸻
-
-Cache Strategy
-
-Always cache last good snapshot.
-
-If refresh fails, app should not go blank.
-
-It should say:
-
-Showing cached odds from 11:02 AM
-Refresh failed at 11:14 AM
-
-This is very important for race day.
+* structures differ meaningfully
+* not all chalk-heavy
+* not all chaos-heavy
 
 ⸻
 
-Build Order
+14. PASS 2 ACCEPTANCE CRITERIA
 
-Phase 1 — Data Pipeline
+System must:
 
-Build source adapters first.
-
-Success means:
-
-* app can load Friday card
-* app can load Saturday card
-* app can refresh odds
-* app saves snapshots
-* app validates data
-
-Do not build the sim until this works.
-
-Phase 2 — Browser UI
-
-Build iPad-friendly view.
-
-Success means:
-
-* open on iPad
-* refresh data
-* view all Pick 5 legs
-* see odds and probabilities
-* tag horses
-
-Phase 3 — Simulation
-
-Add probability blend and Monte Carlo.
-
-Success means:
-
-* run sims
-* see race winner probabilities
-* see fragile/spread/single races
-
-Phase 4 — Ticket Builder
-
-Add budgeted tickets.
-
-Success means:
-
-* generate tickets under $48/$96/$144/$192
-* compare tickets
-* show cost and hit-rate estimates
+✅ adjust probabilities beyond raw odds
+✅ identify value vs overbet horses
+✅ incorporate odds movement
+✅ classify races correctly
+✅ allocate budget intelligently
+✅ generate differentiated tickets
+✅ show confidence + edge
 
 ⸻
 
-Acceptance Criteria
+15. FINAL MENTAL MODEL
 
-This is done when:
+PASS 1:
 
-* I can open it on my iPad
-* tap refresh
-* automatically load Friday Pick 5
-* automatically load Saturday Pick 5
-* see current odds
-* see morning line odds
+build tickets that work
+
+PASS 2:
+
+build tickets that beat how people bet
+
+⸻
+
+16. FINAL TRUTH
+
+Your edge comes from:
+
+1. Using favorites to reduce cost
+2. Using historical priors to avoid bad singles
+3. Using odds movement to find live horses
+4. Using budget to maximize chaos coverage
+5. Capturing 1–2 key upsets
+
+NOT from:
+
+perfectly predicting race winners
+
+⸻
+
+17. END STATE
+
+When this is working, you can:
+
+* open app on iPad
+* auto-load Derby weekend races
+* see adjusted probabilities
+* see value + traps
 * see odds movement
-* tag horses
-* run simulations
-* build tickets under budget
-* rely on cached data if refresh fails
+* enter $96
+* get 3 strong tickets
 
-No manual race-card entry.
+That’s the product.
 
-No manual full-card CSV work.
-
-Manual override only.
-
-⸻
-
-Final Principle
-
-The app lives or dies on automated data.
-
-If the data ingestion is weak, the sim does not matter.
-
-Build the data adapter, cache, and validation first.
-
-Then build the Pick 5 model.
+---
+If you want, next I can:
+- turn this into actual code (Python + React)
+- or give you exact formulas + functions ready to drop in
+This version is now *actually sharp*, not just functional.
