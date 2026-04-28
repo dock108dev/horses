@@ -339,10 +339,9 @@ def test_default_tickets_from_tags_uses_tagged_horses() -> None:
     assert t.cost == 2 * DEFAULT_BASE_UNIT
 
 
-def test_default_tickets_from_tags_skips_toss_and_fade() -> None:
+def test_default_tickets_from_tags_skips_toss() -> None:
     card = _uniform_card(n_per_leg=3)
     card[0].horses[0].userTag = "toss"  # type: ignore[assignment]
-    card[0].horses[1].userTag = "fade"  # type: ignore[assignment]
     card[0].horses[2].userTag = "A"  # type: ignore[assignment]
     for race in card[1:]:
         race.horses[0].userTag = "A"  # type: ignore[assignment]

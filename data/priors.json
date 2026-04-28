@@ -16,5 +16,18 @@
     "8-10": { "favoriteWinRate": 0.32 },
     "11-14": { "favoriteWinRate": 0.25 },
     "15+": { "favoriteWinRate": 0.18 }
+  },
+  "odds_rank": {
+    "1": 0.94,
+    "2": 1.0,
+    "3": 1.02,
+    "4-6": 1.08,
+    "7+": 0.9
+  },
+  "race_type": {
+    "turf_sprint": { "chaos": 1.2 },
+    "maiden": { "chaos": 1.25 },
+    "derby": { "chaos": 1.35 },
+    "default": { "chaos": 1.0 }
   }
 }

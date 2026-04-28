@@ -14,6 +14,16 @@ metrics are also accumulated and reported on every ticket:
 - ``separator_coverage_pct``: fraction where at least one winner carries
   the ``"likely_separator"`` flag.
 
+In addition to the iteration-driven metrics, each
+:class:`TicketSimulationResult` also reports two per-ticket pre-sim
+scalars derived from the ticket's leg selections and the race state:
+
+- ``payout_score``: ``(1 - raw_chalkiness) ** PAYOUT_SCORE_EXPONENT``
+  where ``raw_chalkiness`` is the mean of ``max(marketProbability)``
+  across the five legs. Higher = less chalky = higher expected payout.
+- ``confidence``: mean of ``confidence_score`` across every selected
+  horse. Higher = more confident the legs will hold.
+
 The simulator pre-builds cumulative weights and per-horse flag arrays
 once per call so the inner loop is just one ``bisect_left`` per leg.
 That keeps a 50,000-iteration run well under the 10-second budget on
@@ -25,14 +35,19 @@ from __future__ import annotations
 import random
 from bisect import bisect_left
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.model import (
     FLAG_LIKELY_SEPARATOR,
     PICK5_LEG_COUNT,
+    Horse,
     Race,
     select_pick5_legs,
 )
+
+TicketLabel = Literal["Balanced", "Safer", "Upside"]
 
 DEFAULT_ITERATIONS = 50_000
 MAX_ITERATIONS = 100_000
@@ -44,6 +59,12 @@ DEFAULT_BASE_UNIT = 0.50
 TAGS_FOR_DEFAULT_TICKET: frozenset[str] = frozenset(
     {"single", "A", "B", "C", "chaos"}
 )
+
+# Exponent applied to ``(1 - raw_chalkiness)`` when computing
+# ``payout_score``. Values > 1 amplify the penalty for chalk-heavy
+# selections; ``1.5`` is the calibration point chosen in
+# ``.aidlc/research/payout-score-formula.md``.
+PAYOUT_SCORE_EXPONENT = 1.5
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +88,19 @@ class Ticket(BaseModel):
     selections: list[list[str]] = Field(
         min_length=PICK5_LEG_COUNT, max_length=PICK5_LEG_COUNT
     )
+    # Pass 2 ticket-quality outputs — defaulted so existing builds remain
+    # valid before the edge model populates them. Bounds match the
+    # producer ranges (``compute_payout_score``, ``compute_ticket_confidence``,
+    # ``compute_chalk_exposure``); ``edge_score`` is intentionally
+    # unconstrained because per-horse ``edge_score`` can be negative.
+    # See docs/audits/security-report.md S11.
+    edge_score: float | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    payout_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    chalk_exposure: float | None = Field(default=None, ge=0.0, le=1.0)
+    notes: str | None = None
+    label: TicketLabel | None = None
+    hit_rate_pct: float | None = Field(default=None, ge=0.0, le=100.0)
 
 
 class TicketSimulationResult(BaseModel):
@@ -80,6 +114,9 @@ class TicketSimulationResult(BaseModel):
     chalkiness_pct: float
     chaos_coverage_pct: float
     separator_coverage_pct: float
+    # Bounds match the producer ranges. See security-report S11.
+    payout_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class SimulationResult(BaseModel):
@@ -164,6 +201,7 @@ def simulate(
     chaos_pct = 100.0 * chaos_count / n
     sep_pct = 100.0 * sep_count / n
 
+    horse_index = _horse_index(legs)
     return SimulationResult(
         n_iterations=n,
         tickets=[
@@ -174,6 +212,8 @@ def simulate(
                 chalkiness_pct=chalk_pct,
                 chaos_coverage_pct=chaos_pct,
                 separator_coverage_pct=sep_pct,
+                payout_score=compute_payout_score(t.selections, horse_index),
+                confidence=compute_ticket_confidence(t.selections, horse_index),
             )
             for i, t in enumerate(tickets)
         ],
@@ -278,6 +318,82 @@ def _prepare_leg(
     return ids, cum_weights, is_chalk, is_chaos, is_sep
 
 
+def _horse_index(legs: list[Race]) -> list[dict[str, Horse]]:
+    """Return one ``{horse.id: horse}`` map per leg in leg order."""
+    return [{h.id: h for h in race.horses} for race in legs]
+
+
+def compute_payout_score(
+    selections: list[list[str]],
+    horse_index: list[dict[str, Horse]],
+    *,
+    exponent: float = PAYOUT_SCORE_EXPONENT,
+) -> float | None:
+    """Return ``(1 - raw_chalkiness) ** exponent`` for ``selections``.
+
+    ``raw_chalkiness`` is the mean over legs of the maximum
+    ``marketProbability`` among each leg's non-scratched selections.
+    Returns ``None`` when ``selections`` does not match the leg count;
+    otherwise always returns a value in ``[0, 1]``.
+    """
+    if len(selections) != len(horse_index):
+        return None
+    chalk = compute_chalk_exposure(selections, horse_index)
+    if chalk is None:
+        return None
+    base = max(0.0, 1.0 - chalk)
+    return base ** exponent
+
+
+def compute_chalk_exposure(
+    selections: list[list[str]], horse_index: list[dict[str, Horse]]
+) -> float | None:
+    """Mean of ``max(marketProbability)`` per leg across ``selections``."""
+    if len(selections) != len(horse_index):
+        return None
+    per_leg: list[float] = []
+    for leg_sel, by_id in zip(selections, horse_index):
+        leg_max = 0.0
+        for hid in leg_sel:
+            h = by_id.get(hid)
+            if h is None or h.scratched:
+                continue
+            prob = h.marketProbability
+            if prob is None:
+                prob = h.finalProbability
+            if prob is None:
+                continue
+            if prob > leg_max:
+                leg_max = prob
+        per_leg.append(leg_max)
+    if not per_leg:
+        return None
+    return sum(per_leg) / len(per_leg)
+
+
+def compute_ticket_confidence(
+    selections: list[list[str]], horse_index: list[dict[str, Horse]]
+) -> float | None:
+    """Mean ``confidence_score`` across every selected non-scratched horse.
+
+    Returns ``None`` when no selected horse exposes a confidence score —
+    typically because the edge model has not been applied to the card.
+    """
+    if len(selections) != len(horse_index):
+        return None
+    values: list[float] = []
+    for leg_sel, by_id in zip(selections, horse_index):
+        for hid in leg_sel:
+            h = by_id.get(hid)
+            if h is None or h.scratched:
+                continue
+            if h.confidence_score is not None:
+                values.append(h.confidence_score)
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
 def _prepare_ticket_sets(tickets: list[Ticket]) -> list[list[set[str]]]:
     """Convert each ticket's selections into per-leg ``set[str]`` for O(1) lookup."""
     out: list[list[set[str]]] = []
@@ -298,9 +414,14 @@ __all__ = [
     "CHAOS_USER_TAG",
     "DEFAULT_BASE_UNIT",
     "TAGS_FOR_DEFAULT_TICKET",
+    "PAYOUT_SCORE_EXPONENT",
+    "TicketLabel",
     "Ticket",
     "TicketSimulationResult",
     "SimulationResult",
     "simulate",
     "default_tickets_from_tags",
+    "compute_payout_score",
+    "compute_chalk_exposure",
+    "compute_ticket_confidence",
 ]

@@ -40,17 +40,30 @@ export function driftDirection(
   return "flat";
 }
 
-export function driftLabel(d: DriftDirection): string {
-  switch (d) {
-    case "shorter":
-      return "↓ shorter";
-    case "longer":
-      return "↑ longer";
-    case "flat":
-      return "—";
-    default:
-      return "";
-  }
+export type DriftMagnitude =
+  | "big-shorter"
+  | "shorter"
+  | "flat"
+  | "longer"
+  | "big-longer"
+  | "unknown";
+
+// Bucket the decimal-odds delta into five trend tiers. "Big" thresholds at
+// ±3.0 fractional points match the magnitude bands documented in the
+// frontend-edge-ui-layout research.
+export function driftMagnitude(
+  ml: string | null | undefined,
+  current: string | null | undefined,
+): DriftMagnitude {
+  const a = parseFractional(ml);
+  const b = parseFractional(current);
+  if (a === null || b === null) return "unknown";
+  const delta = b - a;
+  if (Math.abs(delta) < 0.5) return "flat";
+  if (delta <= -3.0) return "big-shorter";
+  if (delta < 0) return "shorter";
+  if (delta >= 3.0) return "big-longer";
+  return "longer";
 }
 
 export function formatPercent(p: number | null | undefined, digits = 0): string {

@@ -6,7 +6,7 @@ interface SimulationSummaryProps {
   result: SimulationResult | null;
   loading: boolean;
   error: string | null;
-  /** Optional human label per ticket id (e.g. "Main", "Backup 1", "Chaos"). */
+  /** Optional human label per ticket id (e.g. "Balanced", "Safer", "Upside"). */
   labels?: Record<string, string>;
 }
 
@@ -26,15 +26,19 @@ function pct(value: number | undefined | null, digits = 1): string {
   return `${value.toFixed(digits)}%`;
 }
 
+function num(value: number | undefined | null, digits = 2): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return value.toFixed(digits);
+}
+
 function money(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
 function defaultLabel(ticketId: string): string {
-  if (ticketId === "main") return "Main";
-  if (ticketId === "chaos") return "Chaos";
-  const m = ticketId.match(/^backup-(\d+)$/);
-  if (m) return `Backup ${m[1]}`;
+  if (ticketId === "balanced") return "Balanced";
+  if (ticketId === "safer") return "Safer";
+  if (ticketId === "upside") return "Upside";
   return ticketId;
 }
 
@@ -185,6 +189,22 @@ export function SimulationSummary({
                   fontVariantNumeric: "tabular-nums",
                 }}
               >
+                {t.payout_score !== undefined ? (
+                  <>
+                    <dt style={{ color: "var(--text-muted)" }}>Payout score</dt>
+                    <dd style={{ margin: 0, textAlign: "right" }}>
+                      {num(t.payout_score)}
+                    </dd>
+                  </>
+                ) : null}
+                {t.confidence !== undefined ? (
+                  <>
+                    <dt style={{ color: "var(--text-muted)" }}>Confidence</dt>
+                    <dd style={{ margin: 0, textAlign: "right" }}>
+                      {num(t.confidence)}
+                    </dd>
+                  </>
+                ) : null}
                 <dt style={{ color: "var(--text-muted)" }}>Chalkiness</dt>
                 <dd style={{ margin: 0, textAlign: "right" }}>
                   {pct(t.chalkiness_pct)}

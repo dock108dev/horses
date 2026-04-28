@@ -12,8 +12,6 @@ const TAGS: { value: UserTag | null; label: string; hint: string }[] = [
   { value: "C", label: "C", hint: "Backup / chaos coverage" },
   { value: "toss", label: "Toss", hint: "Exclude from tickets" },
   { value: "chaos", label: "Chaos", hint: "Include in chaos tickets" },
-  { value: "boost", label: "Boost", hint: "Bump prob 15%" },
-  { value: "fade", label: "Fade", hint: "Cut prob 15%" },
 ];
 
 interface TagPickerProps {

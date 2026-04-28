@@ -18,9 +18,13 @@ export type UserTag =
   | "B"
   | "C"
   | "toss"
-  | "chaos"
-  | "boost"
-  | "fade";
+  | "chaos";
+
+export type ComputedBucket = "CORE" | "VALUE" | "CHAOS" | "TRAP" | "DEAD";
+
+export type RaceClassification = "KEY" | "TIGHT" | "MID" | "CHAOS";
+
+export type ChaosLevel = "LOW" | "MODERATE" | "HIGH" | "EXTREME";
 
 export interface Horse {
   id: string;
@@ -37,8 +41,18 @@ export interface Horse {
   morningLineProbability?: number;
   modelProbability?: number;
   finalProbability?: number;
+  true_prob?: number;
+  ownership_proxy?: number;
+  edge_score?: number;
+  confidence_score?: number;
+  computedBucket?: ComputedBucket;
   userTag?: UserTag;
   flags: string[];
+  steam_horse?: boolean;
+  separator_candidate?: boolean;
+  trap_favorite?: boolean;
+  value_horse?: boolean;
+  cold_horse?: boolean;
 }
 
 export interface Race {
@@ -52,6 +66,10 @@ export interface Race {
   distance?: string;
   sequenceRole?: SequenceRole;
   horses: Horse[];
+  classification?: RaceClassification;
+  strategy?: string;
+  entropy?: number;
+  chaos_level?: ChaosLevel;
 }
 
 export interface OddsSnapshot {
@@ -103,6 +121,8 @@ export interface TicketSimulationResult {
   chalkiness_pct: number;
   chaos_coverage_pct: number;
   separator_coverage_pct: number;
+  payout_score?: number;
+  confidence?: number;
 }
 
 export interface SimulationResult {
@@ -110,10 +130,19 @@ export interface SimulationResult {
   tickets: TicketSimulationResult[];
 }
 
+export type TicketLabel = "Balanced" | "Safer" | "Upside";
+
 export interface BuiltTicket {
   id: string;
   cost: number;
   selections: string[][];
+  edge_score?: number;
+  confidence?: number;
+  payout_score?: number;
+  chalk_exposure?: number;
+  notes?: string;
+  label?: TicketLabel;
+  hit_rate_pct?: number;
 }
 
 export interface BudgetVariant {

@@ -47,12 +47,17 @@ function pct(value: number | null | undefined, digits = 2): string {
   return `${value.toFixed(digits)}%`;
 }
 
-function ticketLabel(id: string): string {
-  if (id === "main") return "Main";
-  if (id === "chaos") return "Chaos";
-  const m = id.match(/^backup-(\d+)$/);
-  if (m) return `Backup ${m[1]}`;
-  return id;
+function ticketLabel(ticket: BuiltTicket): string {
+  if (ticket.label) return ticket.label;
+  if (ticket.id === "balanced") return "Balanced";
+  if (ticket.id === "safer") return "Safer";
+  if (ticket.id === "upside") return "Upside";
+  return ticket.id;
+}
+
+function num(value: number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return value.toFixed(digits);
 }
 
 type Disposition = "keep" | "drop" | undefined;
@@ -171,8 +176,8 @@ export function TicketBuilder({
 
       {!loading && !error && variants.length === 0 ? (
         <div style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-          Tap <strong>Build Tickets</strong> to generate A/B/chaos tickets per
-          budget.
+          Tap <strong>Build Tickets</strong> to generate Balanced, Safer, and
+          Upside tickets per budget.
         </div>
       ) : null}
 
@@ -322,8 +327,17 @@ function TicketCard({
           flexWrap: "wrap",
         }}
       >
-        <div style={{ display: "flex", alignItems: "baseline", gap: "0.6rem" }}>
-          <span style={{ fontWeight: 700 }}>{ticketLabel(ticket.id)}</span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            gap: "0.6rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontWeight: 700, fontSize: "1rem" }}>
+            {ticketLabel(ticket)}
+          </span>
           <span
             style={{
               fontSize: "0.8rem",
@@ -342,6 +356,52 @@ function TicketCard({
               }}
             >
               {pct(hitRate)} hit
+            </span>
+          ) : ticket.hit_rate_pct !== undefined ? (
+            <span
+              style={{
+                fontSize: "0.8rem",
+                color: "var(--accent)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {pct(ticket.hit_rate_pct)} hit
+            </span>
+          ) : null}
+          {ticket.payout_score !== undefined ? (
+            <span
+              style={{
+                fontSize: "0.8rem",
+                color: "var(--text-muted)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+              title="Payout score"
+            >
+              payout {num(ticket.payout_score)}
+            </span>
+          ) : null}
+          {ticket.confidence !== undefined ? (
+            <span
+              style={{
+                fontSize: "0.8rem",
+                color: "var(--text-muted)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+              title="Confidence"
+            >
+              conf {num(ticket.confidence)}
+            </span>
+          ) : null}
+          {ticket.chalk_exposure !== undefined ? (
+            <span
+              style={{
+                fontSize: "0.8rem",
+                color: "var(--text-muted)",
+                fontVariantNumeric: "tabular-nums",
+              }}
+              title="Chalk exposure"
+            >
+              chalk {pct(ticket.chalk_exposure * 100, 0)}
             </span>
           ) : null}
         </div>
@@ -384,6 +444,19 @@ function TicketCard({
           </button>
         </div>
       </header>
+
+      {ticket.notes ? (
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.78rem",
+            fontStyle: "italic",
+            color: "var(--text-muted)",
+          }}
+        >
+          {ticket.notes}
+        </p>
+      ) : null}
 
       <ol
         style={{

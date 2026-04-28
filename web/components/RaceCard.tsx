@@ -1,6 +1,11 @@
 "use client";
 
-import type { Race, SequenceRole, UserTag } from "../lib/types";
+import type {
+  RaceClassification,
+  Race,
+  SequenceRole,
+  UserTag,
+} from "../lib/types";
 import { HorseRow, HorseRowHeader } from "./HorseRow";
 
 const LEG_LABELS: Record<SequenceRole, string> = {
@@ -10,6 +15,82 @@ const LEG_LABELS: Record<SequenceRole, string> = {
   "pick5-leg-4": "Leg 4",
   "pick5-leg-5": "Leg 5",
 };
+
+const STRATEGY_STYLES: Record<string, { bg: string; color: string }> = {
+  SINGLE: { bg: "#1a4fd0", color: "white" },
+  "2-DEEP": { bg: "#7a4fd0", color: "white" },
+  MID: { bg: "#1f9d55", color: "white" },
+  "CHAOS SPREAD": { bg: "#a36b00", color: "white" },
+  "MAX CHAOS": { bg: "#b53b3b", color: "white" },
+};
+
+const CLASSIFICATION_STYLES: Record<
+  RaceClassification,
+  { color: string; border: string }
+> = {
+  KEY: { color: "#1a4fd0", border: "#1a4fd0" },
+  TIGHT: { color: "#7a4fd0", border: "#7a4fd0" },
+  MID: { color: "#1f9d55", border: "#1f9d55" },
+  CHAOS: { color: "#b53b3b", border: "#b53b3b" },
+};
+
+function StrategyBadge({
+  strategy,
+  classification,
+}: {
+  strategy: string | undefined;
+  classification: RaceClassification | undefined;
+}) {
+  if (!strategy && !classification) return null;
+  const stratStyle = strategy
+    ? STRATEGY_STYLES[strategy] ?? {
+        bg: "var(--surface-alt)",
+        color: "var(--text)",
+      }
+    : null;
+  const classStyle = classification
+    ? CLASSIFICATION_STYLES[classification]
+    : null;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        borderRadius: 999,
+        overflow: "hidden",
+        fontSize: "0.7rem",
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+      }}
+    >
+      {stratStyle ? (
+        <span
+          style={{
+            padding: "2px 9px",
+            background: stratStyle.bg,
+            color: stratStyle.color,
+          }}
+        >
+          {strategy}
+        </span>
+      ) : null}
+      {classStyle ? (
+        <span
+          style={{
+            padding: "2px 8px",
+            background: "var(--surface)",
+            color: classStyle.color,
+            border: `1px solid ${classStyle.border}`,
+            borderLeft: stratStyle ? "none" : undefined,
+          }}
+        >
+          {classification}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 interface RaceCardProps {
   race: Race;
@@ -75,6 +156,7 @@ export function RaceCard({
             display: "flex",
             gap: "0.75rem",
             alignItems: "center",
+            flexWrap: "wrap",
             color: "var(--text-muted)",
             fontSize: "0.85rem",
           }}
@@ -86,6 +168,10 @@ export function RaceCard({
               Post {race.postTime}
             </span>
           ) : null}
+          <StrategyBadge
+            strategy={race.strategy}
+            classification={race.classification}
+          />
         </div>
       </header>
 

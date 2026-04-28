@@ -38,3 +38,6 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 data/snapshots/
+
+.aidlc/
+.DS_Store
