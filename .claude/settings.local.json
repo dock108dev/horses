@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import aidlc, aidlc.schemas, inspect; print\\(inspect.getfile\\(aidlc.schemas\\)\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(git -C /Users/dock108/git/aidlc status --short aidlc/schemas.py)",
+      "Bash(git -C /Users/dock108/git/aidlc diff aidlc/schemas.py)",
+      "Bash(pip install *)",
+      "Bash(python3 -c \"import aidlc, inspect; print\\(inspect.getfile\\(aidlc\\)\\)\")"
+    ]
+  }
+}
