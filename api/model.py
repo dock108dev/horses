@@ -30,10 +30,9 @@ The second half implements the probability blending model:
    ``flags`` after the prior steps; reads ``classification`` from
    :func:`classify_race`; reads drift series for the velocity component.
 
-LOC note: ~905 LOC, over the 500-line guideline and past the
-probability-layer-at-400-LOC extraction trigger. The probability layer
-operates directly on the Pydantic models defined here; a split into
-``api/probability.py`` would force every probability import in the
+LOC note: ~1377 LOC, well over the 500-line guideline. The probability
+layer operates directly on the Pydantic models defined here; a split
+into ``api/probability.py`` would force every probability import in the
 codebase + tests to change for no behavioral win. See
 ``docs/audits/cleanup-report.md`` "Files still >500 LOC" for the
 extraction plan if the file grows further. The SSOT pass
@@ -96,7 +95,6 @@ class Horse(BaseModel):
     # 0.03; ``confidence_score`` is ``raw * stability`` where both factors
     # are in [0, 1]. Constraining at construction documents the contract
     # and rejects malformed cached / replayed payloads at the boundary.
-    # See docs/audits/security-report.md S11.
     true_prob: float | None = Field(default=None, ge=0.0, le=1.0)
     ownership_proxy: float | None = Field(default=None, ge=0.0, le=1.0)
     edge_score: float | None = None
@@ -191,7 +189,7 @@ SPREAD_TOLERANCE = 0.05
 
 # Race classification thresholds (KEY/TIGHT/MID/CHAOS) — applied to
 # adjusted ``finalProbability`` after the historical-priors and movement
-# steps have run. See ``.aidlc/research/strategy-output-format.md``.
+# steps have run.
 KEY_TOP_PROB_MIN = 0.42
 KEY_GAP_MIN = 0.15
 TIGHT_TOP2_MIN = 0.55
@@ -232,9 +230,8 @@ FLAG_COLD_ON_BOARD = "cold_on_board"
 FLAG_SCRATCH = "scratch"
 FLAG_MISSING_ODDS = "missing_odds"
 # Spec-mandated flag (BRAINDUMP "Flags" — "Likely separator"). Consumed by
-# the simulator's separator-coverage metric; populated by ISSUE-010 once the
-# separator-detection rule is defined. Kept here so producers and consumers
-# share a single string.
+# the simulator's separator-coverage metric. Producer not yet wired —
+# kept here so producers and consumers share a single string.
 FLAG_LIKELY_SEPARATOR = "likely_separator"
 
 RaceType = Literal["large_field_dirt_route", "small_field_chalk"]
@@ -673,7 +670,7 @@ def apply_flags(
 # computed over a shorter span is projected to the equivalent change you
 # would see over a full T-120→current window so calibration constants
 # (clamp, noise floor, weights) stay comparable regardless of how much
-# history is available. See ``movement-weight-calibration.md``.
+# history is available.
 MOVEMENT_REFERENCE_WINDOW_MS = 7_200_000  # 120 minutes
 
 VELOCITY_CLAMP = 0.15
@@ -715,8 +712,7 @@ def _compute_velocity(
     # straight from cache rows and are not Pydantic-validated. Letting NaN
     # propagate would silently flow into ``finalProbability`` and JSON-
     # serialize as the non-standard ``NaN`` literal, breaking strict
-    # parsers. See docs/audits/security-report.md S11 and
-    # docs/audits/error-handling-report.md F23.
+    # parsers. See docs/audits/error-handling-report.md F23.
     if not (math.isfinite(earliest_p) and math.isfinite(latest_p)):
         return 0.0
     delta_t_ms = latest_ts - earliest_ts
@@ -838,8 +834,7 @@ def apply_movement_adjustment(
 # ---- race classification (KEY/TIGHT/MID/CHAOS + strategy label) ----------
 
 # Lookup classification × chaos_level → strategy label. The override at
-# chaos_factor ≥ 1.35 short-circuits this table — see
-# ``.aidlc/research/strategy-output-format.md`` §5.
+# chaos_factor ≥ MAX_CHAOS_FACTOR_OVERRIDE short-circuits this table.
 _STRATEGY_TABLE: dict[tuple[RaceClassification, ChaosLevel], StrategyLabel] = {
     ("KEY", "LOW"): STRATEGY_LABEL_SINGLE,
     ("KEY", "MODERATE"): STRATEGY_LABEL_SINGLE,
@@ -991,8 +986,8 @@ def classify_race(
 
 # ---- edge model (ownership, edge, confidence, bucket, flags) -------------
 
-# Ownership proxy table — `.aidlc/research/ownership-proxy-numbers.md`. Keyed
-# by 1-indexed odds rank; rank 13+ falls through to OWNERSHIP_PROXY_TAIL.
+# Ownership proxy table — keyed by 1-indexed odds rank; rank 13+ falls
+# through to OWNERSHIP_PROXY_TAIL.
 OWNERSHIP_PROXY_BY_RANK: dict[int, float] = {
     1: 0.65,
     2: 0.50,
@@ -1016,7 +1011,7 @@ OWNERSHIP_SCALE = 0.18
 # Linear mapping from race chaos_factor → per-horse chaos_bonus (rank ≥ 2).
 CHAOS_BONUS_SCALE = 0.15
 
-# Confidence score components — `.aidlc/research/confidence-score-formula.md`.
+# Confidence score components.
 PROB_STRONG_THRESHOLD = 0.40
 MAX_VELOCITY = 0.10
 CONFIDENCE_WEIGHT_PROB = 0.60
@@ -1231,8 +1226,7 @@ def _renormalize(horses: list[Horse], field: str) -> None:
     multipliers that could otherwise poison the whole race. Pydantic's
     JSON encoder defaults to ``inf_nan_mode='null'`` which would null these
     out at the wire, but downstream pipeline steps (sim, classification,
-    edge model) read the in-memory values before serialization. See
-    docs/audits/security-report.md S18.
+    edge model) read the in-memory values before serialization.
     """
     total = 0.0
     for h in horses:

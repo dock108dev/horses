@@ -1,5 +1,11 @@
 "use client";
 
+// LOC note: ~553 LOC, over the 500-line guideline. The budget-tab,
+// keep/drop disposition, and per-leg breakdown all read the same
+// `legs`/`horsesById`/`dispositions` props; splitting BudgetPanel /
+// TicketCard into separate files would just shuffle the imports without
+// changing the data flow. See docs/audits/cleanup-report.md
+// "Files still >500 LOC".
 import { useEffect, useMemo, useState } from "react";
 
 import type {
@@ -9,6 +15,8 @@ import type {
   Race,
   TicketSimulationResult,
 } from "../lib/types";
+import { money, num, pct } from "../lib/format";
+import { Spinner } from "./Spinner";
 
 interface TicketBuilderProps {
   variants: BudgetVariant[];
@@ -38,26 +46,12 @@ const KEEP_DROP_BUTTON: React.CSSProperties = {
   fontWeight: 600,
 };
 
-function money(value: number): string {
-  return `$${value.toFixed(2)}`;
-}
-
-function pct(value: number | null | undefined, digits = 2): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return `${value.toFixed(digits)}%`;
-}
-
 function ticketLabel(ticket: BuiltTicket): string {
   if (ticket.label) return ticket.label;
   if (ticket.id === "balanced") return "Balanced";
   if (ticket.id === "safer") return "Safer";
   if (ticket.id === "upside") return "Upside";
   return ticket.id;
-}
-
-function num(value: number | null | undefined, digits = 2): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return value.toFixed(digits);
 }
 
 type Disposition = "keep" | "drop" | undefined;
@@ -355,7 +349,7 @@ function TicketCard({
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              {pct(hitRate)} hit
+              {pct(hitRate, 2)} hit
             </span>
           ) : ticket.hit_rate_pct !== undefined ? (
             <span
@@ -365,7 +359,7 @@ function TicketCard({
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              {pct(ticket.hit_rate_pct)} hit
+              {pct(ticket.hit_rate_pct, 2)} hit
             </span>
           ) : null}
           {ticket.payout_score !== undefined ? (
@@ -377,7 +371,7 @@ function TicketCard({
               }}
               title="Payout score"
             >
-              payout {num(ticket.payout_score)}
+              payout {num(ticket.payout_score, 2)}
             </span>
           ) : null}
           {ticket.confidence !== undefined ? (
@@ -389,7 +383,7 @@ function TicketCard({
               }}
               title="Confidence"
             >
-              conf {num(ticket.confidence)}
+              conf {num(ticket.confidence, 2)}
             </span>
           ) : null}
           {ticket.chalk_exposure !== undefined ? (
@@ -539,24 +533,5 @@ function TicketCard({
         })}
       </ol>
     </article>
-  );
-}
-
-function Spinner() {
-  return (
-    <span
-      aria-hidden
-      style={{
-        display: "inline-block",
-        width: 14,
-        height: 14,
-        border: "2px solid var(--border)",
-        borderTopColor: "var(--accent)",
-        borderRadius: "50%",
-        animation: "derby-spin 0.8s linear infinite",
-      }}
-    >
-      <style>{`@keyframes derby-spin{to{transform:rotate(360deg)}}`}</style>
-    </span>
   );
 }

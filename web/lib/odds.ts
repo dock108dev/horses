@@ -49,8 +49,7 @@ export type DriftMagnitude =
   | "unknown";
 
 // Bucket the decimal-odds delta into five trend tiers. "Big" thresholds at
-// ±3.0 fractional points match the magnitude bands documented in the
-// frontend-edge-ui-layout research.
+// ±3.0 fractional points.
 export function driftMagnitude(
   ml: string | null | undefined,
   current: string | null | undefined,

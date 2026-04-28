@@ -8,11 +8,10 @@ Per the "Cache Strategy" section of ``BRAINDUMP.md``, the API never
 returns a blank payload during race day if a prior validated snapshot
 exists.
 
-LOC note: ~606 LOC, over the 500-line guideline but under the ~700-LOC
-extraction trigger. Every section here is FastAPI route wiring on the
-single app instance; an early ``routers/`` split would fragment the
-request/response contract for no behavioral win. See
-``docs/audits/cleanup-report.md`` "Files still >500 LOC".
+LOC note: ~816 LOC, over the 500-line guideline. Every section here is
+FastAPI route wiring on the single app instance; an early ``routers/``
+split would fragment the request/response contract for no behavioral
+win. See ``docs/audits/cleanup-report.md`` "Files still >500 LOC".
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.cache import OddsCache
 from api.model import PICK5_LEG_ROLES, Race, blend_race
@@ -55,6 +54,18 @@ DEFAULT_DERBY_DATES: dict[str, str] = {
     "friday": "2026-05-01",
     "saturday": "2026-05-02",
 }
+
+PICK5_DAY_LABELS: dict[str, str] = {
+    "friday": "Friday",
+    "saturday": "Saturday",
+}
+
+PICK5_PRODUCT_NAMES: dict[str, str] = {
+    "friday": "Kentucky Oaks Pick 5",
+    "saturday": "Kentucky Derby Pick 5",
+}
+
+PICK5_TRACK = "Churchill Downs"
 
 ALLOWED_CORS_ORIGINS: list[str] = [
     "http://localhost:3000",
@@ -167,7 +178,13 @@ async def get_cache(day: DayParam) -> AsyncIterator[OddsCache]:
 
 
 async def get_equibase_adapter() -> AsyncIterator[EquibaseAdapter]:
-    with EquibaseAdapter() as adapter:
+    # Persist Equibase HTML to disk so a same-day re-refresh skips the 12-15
+    # live HTTP fetches plus the 3s/req rate-limit floor. Cache keys are URL
+    # paths (date- and race-scoped by construction), so no TTL is needed —
+    # a stale page only resurfaces if we re-run on the same calendar date,
+    # which is exactly when re-fetching would be wasteful.
+    cache_dir = _data_dir() / "equibase_html"
+    with EquibaseAdapter(cache_dir=cache_dir) as adapter:
         yield adapter
 
 
@@ -200,11 +217,10 @@ else:
 # request Origin back when allow_origins=["*"] AND allow_credentials=True,
 # which effectively allows any third-party site to read this API in the
 # user's browser. There is no auth on this app — there is also no CORS
-# need for *. See docs/audits/security-report.md S1.
+# need for *.
 if "*" in _origins:
     raise RuntimeError(
-        "API_CORS_ORIGINS=* is not permitted; list explicit origins. See "
-        "docs/audits/security-report.md S1."
+        "API_CORS_ORIGINS=* is not permitted; list explicit origins."
     )
 
 app.add_middleware(
@@ -225,7 +241,7 @@ app.add_middleware(
 
 # Security headers — defense-in-depth for the iPad browser surface. We do
 # not ship cookies or third-party assets; CSP is therefore strict by
-# default. See docs/audits/security-report.md S2.
+# default.
 @app.middleware("http")
 async def security_headers(request: Request, call_next: Any) -> Response:
     response: Response = await call_next(request)
@@ -546,7 +562,11 @@ class SimulateRequest(BaseModel):
     # error-handling-report finding F17 / Escalation E1.
     model_config = ConfigDict(extra="forbid")
 
-    n_iterations: int | None = None
+    # Upper bound mirrors ``api.sim.MAX_ITERATIONS`` so the request is
+    # rejected with a 422 at the boundary instead of being silently clamped
+    # inside the engine. ``ge=1`` rejects 0 / negative / overflowed inputs
+    # before any work runs. See security-report S4.
+    n_iterations: int | None = Field(default=None, ge=1, le=100_000)
 
 
 class TicketsRequest(BaseModel):
@@ -554,8 +574,17 @@ class TicketsRequest(BaseModel):
     # silent-drop reason. F17.
     model_config = ConfigDict(extra="forbid")
 
-    budget_dollars: float | None = None
-    base_unit: float | None = None
+    # ``budget_dollars`` ge=0 matches ``BudgetVariant.budget_dollars``
+    # already at the response boundary; lifting it to the request boundary
+    # converts a noisy internal ValidationError into a clean 422 and keeps
+    # negative budgets out of ``build_tickets_for_budgets``. ``base_unit``
+    # is strictly positive: zero would make every ticket cost $0 (driving
+    # ``_fit_to_budget`` add-loop until every horse is selected) and a
+    # negative value would invert the cost ordering. ``le`` caps cap the
+    # values so a fat-fingered keypad input or a hostile payload cannot
+    # produce huge numeric strings in the response. See security-report S4.
+    budget_dollars: float | None = Field(default=None, ge=0.0, le=1_000_000.0)
+    base_unit: float | None = Field(default=None, gt=0.0, le=1_000_000.0)
 
 
 def _no_card_envelope(source: str) -> Envelope:
@@ -666,10 +695,118 @@ async def build_tickets(
     )
 
 
+# ---------------------------------------------------------------------------
+# Self-describe + debug
+# ---------------------------------------------------------------------------
+
+
+def _day_config(day: str) -> dict[str, Any]:
+    iso_date = day_to_iso_date(day)
+    year = int(iso_date.split("-", 1)[0])
+    sequence = get_pick5_legs(year=year, day=day)
+    return {
+        "label": PICK5_DAY_LABELS[day],
+        "productName": PICK5_PRODUCT_NAMES[day],
+        "date": iso_date,
+        "track": PICK5_TRACK,
+        "sequence": sequence,
+    }
+
+
+def _card_source_label(races: list[Race]) -> str | None:
+    sources = {
+        h.source for r in races for h in r.horses if h.source
+    }
+    if not sources:
+        return None
+    return "+".join(sorted(sources))
+
+
+@app.get("/api/pick5/days")
+async def get_pick5_days() -> dict[str, dict[str, Any]]:
+    """Return the authoritative day/date/track/sequence config.
+
+    No external calls — reads ``PICK5_SEQUENCES`` plus the configured ISO
+    dates so the frontend (and anyone hitting Swagger) has a single source
+    of truth for which races make up each Pick 5.
+    """
+    return {day: _day_config(day) for day in ("friday", "saturday")}
+
+
+@app.get("/api/pick5/{day}/debug")
+async def get_pick5_debug(
+    day: DayParam,
+    cache: OddsCache = Depends(get_cache),
+) -> dict[str, Any]:
+    """Return current workflow state for ``day`` from the SQLite cache.
+
+    No external calls — useful for diagnosing what state the system is
+    in without opening browser devtools. ``card.source`` is derived from
+    the cached horses' ``source`` fields (e.g. ``"fixture"`` or
+    ``"equibase+twinspires"``); ``None`` when no source attribution
+    survived round-tripping through the cache.
+    """
+    iso_date = day_to_iso_date(day)
+    cached = cache.get_last_good_card(iso_date)
+
+    if cached is None:
+        card_info: dict[str, Any] = {
+            "loaded": False,
+            "raceCount": 0,
+            "runnerCount": 0,
+            "lastRefresh": None,
+            "source": None,
+        }
+        odds_info: dict[str, Any] = {
+            "loaded": False,
+            "matchedRunnerCount": 0,
+            "lastRefresh": None,
+        }
+    else:
+        card_info = {
+            "loaded": True,
+            "raceCount": len(cached.races),
+            "runnerCount": sum(len(r.horses) for r in cached.races),
+            "lastRefresh": _iso_from_ms(cached.captured_at_ms),
+            "source": _card_source_label(cached.races),
+        }
+        matched = 0
+        latest_ms = 0
+        for race in cached.races:
+            rows = cache.get_latest_odds(race.id)
+            matched += len(rows)
+            for row in rows:
+                if row.captured_at_ms > latest_ms:
+                    latest_ms = row.captured_at_ms
+        odds_info = {
+            "loaded": matched > 0,
+            "matchedRunnerCount": matched,
+            "lastRefresh": _iso_from_ms(latest_ms) if latest_ms > 0 else None,
+        }
+
+    return {
+        "day": day,
+        "config": {
+            "date": iso_date,
+            "track": PICK5_TRACK,
+            "sequence": _day_config(day)["sequence"],
+        },
+        "card": card_info,
+        "odds": odds_info,
+        # Sim and ticket results are computed on demand, not cached, so
+        # there is nothing to surface here beyond "the route exists".
+        "sim": {"available": False},
+        "tickets": {"available": False},
+    }
+
+
 __all__ = [
     "ALLOWED_CORS_ORIGINS",
     "DEFAULT_DERBY_DATES",
     "Envelope",
+    "PICK5_DAY_LABELS",
+    "PICK5_PRODUCT_NAMES",
+    "PICK5_TRACK",
     "app",
     "day_to_iso_date",
     "get_cache",

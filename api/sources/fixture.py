@@ -29,6 +29,23 @@ DEFAULT_FIXTURES_DIR = Path("fixtures/pick5")
 ENV_DATA_MODE = "PICK5_DATA_MODE"
 ENV_FIXTURES_DIR = "PICK5_FIXTURES_DIR"
 
+# Allow-list mirrors ``api.main.DayParam``. The route-level Literal already
+# rejects anything else, but ``load_card`` / ``load_odds_records`` also get
+# called from tests / scripts that bypass the FastAPI validator — guarding
+# here keeps an attacker-controlled ``day`` value (e.g. "../../etc/passwd")
+# from ever being interpolated into the fixture path. See
+# docs/audits/security-report.md S5.
+_ALLOWED_DAYS: frozenset[str] = frozenset({"friday", "saturday"})
+
+
+def _validate_day(day: str) -> str:
+    if day not in _ALLOWED_DAYS:
+        raise ValueError(
+            f"unknown fixture day {day!r}; allowed: "
+            f"{sorted(_ALLOWED_DAYS)}"
+        )
+    return day
+
 
 def fixtures_dir() -> Path:
     """Return the directory holding the ``{day}-card.json`` / ``{day}-odds.json`` files."""
@@ -56,6 +73,7 @@ def load_card(day: str) -> list[Race]:
     into ``morningLineProbability`` for each non-scratched horse and
     re-normalizes per race so the post-refresh validate check passes.
     """
+    day = _validate_day(day)
     path = fixtures_dir() / f"{day}-card.json"
     raw = json.loads(path.read_text())
     if not isinstance(raw, list):
@@ -89,6 +107,7 @@ def load_odds_records(
     are skipped — keeps a fixture odds file usable across small card
     edits without needing to be regenerated.
     """
+    day = _validate_day(day)
     path = fixtures_dir() / f"{day}-odds.json"
     raw = json.loads(path.read_text())
     if not isinstance(raw, list):
@@ -108,6 +127,11 @@ def load_odds_records(
         captured_at_ms if captured_at_ms is not None else int(time.time() * 1000)
     )
     records: list[OddsSnapshotRecord] = []
+    # Per-entry silent-skip pattern: malformed / unmatched fixture rows fall
+    # through to the next iteration. Risk lens is low because fixtures are
+    # committed config reviewed at edit time, and the docstring above is the
+    # contract ("Records whose (raceId, post) does not match … are skipped").
+    # See docs/audits/error-handling-report.md F32.
     for entry in raw:
         if not isinstance(entry, dict):
             continue

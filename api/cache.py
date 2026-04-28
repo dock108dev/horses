@@ -7,16 +7,17 @@ A single SQLite file per calendar day at ``{data_dir}/odds_{day}.db`` holds:
 2. ``card_snapshots`` — serialized :class:`Race` lists for stale-card
    fallback when the live source is unavailable.
 
-The cache is opened in WAL mode with ``synchronous=NORMAL`` per
-``odds-snapshot-storage-backend.md`` — durable enough for intra-day data,
-~3× faster than the FULL sync default. Inserts are batched in a single
-transaction so a 50-horse poll cycle commits in milliseconds rather than
-the ~50 ms an autocommit loop would cost.
+The cache is opened in WAL mode with ``synchronous=NORMAL`` — durable
+enough for intra-day data, ~3× faster than the FULL sync default.
+Inserts are batched in a single transaction so a 50-horse poll cycle
+commits in milliseconds rather than the ~50 ms an autocommit loop would
+cost.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import time
 from collections.abc import Iterable
@@ -25,6 +26,8 @@ from pathlib import Path
 from types import TracebackType
 
 from api.model import Race
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_DATA_DIR = Path("data")
 
@@ -120,7 +123,14 @@ class OddsCache:
         )
 
     def close(self) -> None:
-        self._conn.close()
+        # Teardown path — sqlite close occasionally raises under WAL when
+        # a request handler aborts mid-transaction. Swallow so the close
+        # exception cannot mask the original handler failure that
+        # triggered cleanup. Match the source-adapter pattern (F2).
+        try:
+            self._conn.close()
+        except Exception as exc:
+            _log.debug("OddsCache close failed for %s: %s", self.path, exc)
 
     def __enter__(self) -> OddsCache:
         return self
@@ -141,8 +151,7 @@ class OddsCache:
         """Insert a batch of records inside a single transaction.
 
         Wrapping the batch in BEGIN/COMMIT is the single biggest
-        performance lever for SQLite writes (~50× speedup vs autocommit
-        per the storage research note).
+        performance lever for SQLite writes (~50× speedup vs autocommit).
         """
         rows = [
             (

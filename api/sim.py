@@ -62,8 +62,7 @@ TAGS_FOR_DEFAULT_TICKET: frozenset[str] = frozenset(
 
 # Exponent applied to ``(1 - raw_chalkiness)`` when computing
 # ``payout_score``. Values > 1 amplify the penalty for chalk-heavy
-# selections; ``1.5`` is the calibration point chosen in
-# ``.aidlc/research/payout-score-formula.md``.
+# selections; 1.5 is the chosen calibration point.
 PAYOUT_SCORE_EXPONENT = 1.5
 
 
@@ -93,7 +92,6 @@ class Ticket(BaseModel):
     # producer ranges (``compute_payout_score``, ``compute_ticket_confidence``,
     # ``compute_chalk_exposure``); ``edge_score`` is intentionally
     # unconstrained because per-horse ``edge_score`` can be negative.
-    # See docs/audits/security-report.md S11.
     edge_score: float | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     payout_score: float | None = Field(default=None, ge=0.0, le=1.0)

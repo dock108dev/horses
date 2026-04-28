@@ -8,9 +8,9 @@ services:
       - "8000:8000"
     environment:
       # Comma-separated allow-list. The wildcard "*" is rejected at startup
-      # (see api/main.py and docs/audits/security-report.md S1), so the
-      # default lists the LAN origins the iPad will hit. Override via .env
-      # for Tailscale or other hostnames.
+      # (the guard is enforced in api/main.py), so the default lists the LAN
+      # origins the iPad will hit. Override via .env for Tailscale or other
+      # hostnames.
       - API_CORS_ORIGINS=${API_CORS_ORIGINS:-http://localhost:3000,http://mac-mini.local:3000}
     volumes:
       # Persist SQLite snapshots and any cached data across restarts.

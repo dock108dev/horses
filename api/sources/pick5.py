@@ -53,9 +53,10 @@ _DEFAULT_BY_DAY: dict[str, list[int]] = {
 }
 _FALLBACK_LEGS: list[int] = [9, 10, 11, 12, 13]
 
-# Churchill Downs does not run an early Pick 5 on Oaks/Derby day; if a
-# scrape ever finds "Pick 5" earlier than race 7, treat it as a parse
-# false-positive (e.g. a global wager-menu legend) and ignore it.
+# Churchill Downs runs both an early Pick 5 (races ~1-5) and the featured
+# late Pick 5 (races 8-12 Friday / 9-13 Saturday). This app targets only
+# the late pool. Any scraped first-leg below MIN_FIRST_LEG is the early
+# pool — discard it so we always resolve to the late sequence.
 MIN_FIRST_LEG = 7
 
 _RACE_HEADER_SPLIT_RE = re.compile(r"(?im)^\s*Race\s+(\d+)\b")

@@ -1,11 +1,10 @@
 """Tests for the FastAPI app — envelope shape, CORS, refresh fallbacks.
 
-LOC note: ~577 LOC, over the 500-line guideline but under the ~800-LOC
-extraction trigger. Fixtures (FakeEquibase, FakeTwinSpires,
-_client_with_overrides, _seed_cache) are shared across every endpoint
-test; splitting would either duplicate fixtures or invent a conftest
-layer that obscures what each test sets up. See
-``docs/audits/cleanup-report.md`` "Files still >500 LOC".
+LOC note: ~932 LOC, well over the 500-line guideline. Fixtures
+(FakeEquibase, FakeTwinSpires, _client_with_overrides, _seed_cache) are
+shared across every endpoint test; splitting would either duplicate
+fixtures or invent a conftest layer that obscures what each test sets
+up. See ``docs/audits/cleanup-report.md`` "Files still >500 LOC".
 """
 
 from __future__ import annotations
@@ -636,6 +635,27 @@ def test_day_to_iso_date_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert day_to_iso_date("friday") == DEFAULT_DERBY_DATES["friday"]
 
 
+def test_get_equibase_adapter_wires_disk_cache(tmp_data_dir: Path) -> None:
+    """Default factory must enable the disk cache so same-day re-refreshes
+    skip the 12-15 live Equibase fetches plus the 3s/req rate-limit floor."""
+    import asyncio
+
+    expected = tmp_data_dir / "equibase_html"
+
+    async def drive() -> Path:
+        gen = get_equibase_adapter()
+        adapter = await gen.__anext__()
+        try:
+            assert expected.is_dir()
+            return adapter.cache_dir
+        finally:
+            with pytest.raises(StopAsyncIteration):
+                await gen.__anext__()
+
+    cache_dir = asyncio.run(drive())
+    assert cache_dir == expected
+
+
 # ---------------------------------------------------------------------------
 # Fixture mode (?source=fixture / PICK5_DATA_MODE=fixture)
 # ---------------------------------------------------------------------------
@@ -743,6 +763,133 @@ def test_tickets_after_fixture_refresh_returns_variants(
     assert body["data"] is not None
     assert body["source"] == "tickets"
     assert len(body["data"]["variants"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# /api/pick5/days + /api/pick5/{day}/debug
+# ---------------------------------------------------------------------------
+
+
+def test_pick5_days_returns_friday_and_saturday_config(
+    client: TestClient,
+) -> None:
+    resp = client.get("/api/pick5/days")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body.keys()) == {"friday", "saturday"}
+
+    friday = body["friday"]
+    assert friday["label"] == "Friday"
+    assert friday["productName"] == "Kentucky Oaks Pick 5"
+    assert friday["date"] == FRIDAY_ISO
+    assert friday["track"] == "Churchill Downs"
+    assert friday["sequence"] == FRIDAY_LEGS
+
+    saturday = body["saturday"]
+    assert saturday["label"] == "Saturday"
+    assert saturday["productName"] == "Kentucky Derby Pick 5"
+    assert saturday["date"] == SATURDAY_ISO
+    assert saturday["track"] == "Churchill Downs"
+    assert saturday["sequence"] == SATURDAY_LEGS
+
+
+def test_pick5_days_responds_quickly(client: TestClient) -> None:
+    start = time.monotonic()
+    resp = client.get("/api/pick5/days")
+    elapsed = time.monotonic() - start
+    assert resp.status_code == 200
+    assert elapsed < 0.1, f"/api/pick5/days took {elapsed:.3f}s"
+
+
+def test_pick5_days_appears_in_openapi(client: TestClient) -> None:
+    resp = client.get("/openapi.json")
+    assert resp.status_code == 200
+    paths = resp.json()["paths"]
+    assert "/api/pick5/days" in paths
+    assert "/api/pick5/{day}/debug" in paths
+
+
+def test_pick5_debug_with_no_cache(client: TestClient) -> None:
+    resp = client.get("/api/pick5/saturday/debug")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["day"] == "saturday"
+    assert body["config"]["date"] == SATURDAY_ISO
+    assert body["config"]["track"] == "Churchill Downs"
+    assert body["config"]["sequence"] == SATURDAY_LEGS
+    assert body["card"]["loaded"] is False
+    assert body["card"]["raceCount"] == 0
+    assert body["card"]["runnerCount"] == 0
+    assert body["card"]["lastRefresh"] is None
+    assert body["card"]["source"] is None
+    assert body["odds"]["loaded"] is False
+    assert body["odds"]["matchedRunnerCount"] == 0
+    assert body["odds"]["lastRefresh"] is None
+    assert body["sim"] == {"available": False}
+    assert body["tickets"] == {"available": False}
+
+
+def test_pick5_debug_after_fixture_refresh(client: TestClient) -> None:
+    refresh = client.post("/api/cards/friday/refresh?source=fixture")
+    assert refresh.status_code == 200
+
+    resp = client.get("/api/pick5/friday/debug")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["day"] == "friday"
+    assert body["config"]["sequence"] == FRIDAY_LEGS
+    assert body["card"]["loaded"] is True
+    assert body["card"]["raceCount"] == 5
+    assert body["card"]["runnerCount"] > 0
+    assert body["card"]["lastRefresh"] is not None
+    assert body["odds"]["loaded"] is False
+    assert body["odds"]["matchedRunnerCount"] == 0
+
+
+def test_pick5_debug_friday_loaded_does_not_leak_into_saturday(
+    client: TestClient,
+) -> None:
+    """Per-day SQLite files must keep state isolated across days."""
+    refresh = client.post("/api/cards/friday/refresh?source=fixture")
+    assert refresh.status_code == 200
+
+    sat = client.get("/api/pick5/saturday/debug")
+    assert sat.status_code == 200
+    sat_body = sat.json()
+    assert sat_body["card"]["loaded"] is False
+    assert sat_body["card"]["raceCount"] == 0
+
+
+def test_pick5_debug_reports_odds_after_fixture_odds_refresh(
+    client: TestClient,
+) -> None:
+    card = client.post("/api/cards/friday/refresh?source=fixture")
+    assert card.status_code == 200
+    odds = client.post("/api/odds/friday/refresh?source=fixture")
+    assert odds.status_code == 200
+
+    resp = client.get("/api/pick5/friday/debug")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["odds"]["loaded"] is True
+    assert body["odds"]["matchedRunnerCount"] > 0
+    assert body["odds"]["lastRefresh"] is not None
+
+
+def test_pick5_debug_invalid_day_returns_422(client: TestClient) -> None:
+    resp = client.get("/api/pick5/sunday/debug")
+    assert resp.status_code == 422
+
+
+def test_pick5_debug_responds_quickly(
+    tmp_data_dir: Path, client: TestClient
+) -> None:
+    _seed_cache("saturday", _full_card("saturday"), data_dir=tmp_data_dir)
+    start = time.monotonic()
+    resp = client.get("/api/pick5/saturday/debug")
+    elapsed = time.monotonic() - start
+    assert resp.status_code == 200
+    assert elapsed < 0.1, f"/api/pick5/{{day}}/debug took {elapsed:.3f}s"
 
 
 def test_fixture_mode_makes_no_network_calls(client: TestClient) -> None:

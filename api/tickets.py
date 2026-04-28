@@ -18,16 +18,15 @@ before:
 
 Each candidate is fitted to ``budget_dollars`` via the spend-efficiency
 model: rank candidates by ``efficiency_ratio = finalProbability × n_i /
-P_leg_i`` (the ranking-equivalent of ``ΔP_ticket / ΔCost`` from
-``.aidlc/research/spend-efficiency-formula.md``). When over budget, the
-(leg, horse) pair with the lowest efficiency ratio is removed, and the
-loop repeats until cost ≤ budget or every leg is at one selection.
-Classification-driven main tickets additionally run a greedy add loop
-that picks the highest-ratio affordable (leg, horse) pair until the
-budget is exhausted; the A-tag fallback path keeps its tag-only
-selections (no greedy add).
+P_leg_i`` (the ranking-equivalent of ``ΔP_ticket / ΔCost``). When over
+budget, the (leg, horse) pair with the lowest efficiency ratio is
+removed, and the loop repeats until cost ≤ budget or every leg is at
+one selection. Classification-driven main tickets additionally run a
+greedy add loop that picks the highest-ratio affordable (leg, horse)
+pair until the budget is exhausted; the A-tag fallback path keeps its
+tag-only selections (no greedy add).
 
-Candidates are then scored — see ``.aidlc/research/payout-score-formula.md``:
+Candidates are then scored:
 
 - ``win_probability`` = simulated ``estimated_hit_rate_pct / 100``
 - ``payout_score`` = ``(1 - raw_chalkiness) ** PAYOUT_SCORE_EXPONENT``
@@ -47,6 +46,13 @@ The scored pool is collapsed to exactly three labeled output tickets:
 When the underlying simulation fails the builder falls back to selecting
 all three by ascending cost, but still emits exactly three labeled
 tickets so the output contract holds.
+
+LOC note: ~810 LOC, over the 500-line guideline. Candidate-pool
+construction, budget fitting, and Balanced/Safer/Upside scoring all
+share the same ``Ticket`` / ``Race`` / ``horses_by_id`` plumbing; a
+split would force every internal helper to thread the candidate pool
+back across module boundaries for no behavioral win. See
+``docs/audits/cleanup-report.md`` "Files still >500 LOC".
 """
 
 from __future__ import annotations

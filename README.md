@@ -8,9 +8,10 @@ product brief.
 
 The codebase is two services wired together by Docker Compose:
 
-- `api/` — FastAPI backend. Source adapters (Equibase, TwinSpires,
-  KentuckyDerby), per-day SQLite cache for stale-fallback, post-refresh
-  validation, blend/flag probability layer, Monte Carlo sim, ticket builder.
+- `api/` — FastAPI backend. Source adapters (Equibase, TwinSpires, plus a
+  fixture mode for offline workflow testing), per-day SQLite cache for
+  stale-fallback, post-refresh validation, blend/flag probability layer,
+  Monte Carlo sim, ticket builder.
 - `web/` — Next.js (App Router) frontend. iPad-targeted UI for refreshing
   the card, tagging horses, running simulations, and viewing tickets. Calls
   the backend through a `/api/:path*` rewrite.
@@ -31,13 +32,20 @@ proxies `/api/*` through Next.js.
 
 ### Required configuration
 
-`.env.example` documents every variable. The two that matter most:
+`.env.example` documents every variable. The ones that matter:
 
 - `API_CORS_ORIGINS` — explicit comma-separated origin allow-list.
-  `*` is rejected at startup (see `docs/audits/security-report.md` S1).
+  `*` is rejected at startup; the rationale is documented inline at
+  `api/main.py` where the wildcard guard is enforced.
 - `DERBY_FRIDAY_DATE` / `DERBY_SATURDAY_DATE` — override the defaults
   (`2026-05-01` / `2026-05-02`) when targeting a different year. Must
   match `YYYY-MM-DD`.
+- `PICK5_DATA_MODE=fixture` — serve `POST /api/cards/{day}/refresh` and
+  `POST /api/odds/{day}/refresh` from `fixtures/pick5/*.json` instead of
+  hitting Equibase / TwinSpires. Per-request override: `?source=fixture`.
+- `API_BASE_URL` — used by the Next.js server-side fetches inside the
+  docker network (default `http://api:8000`). Browser requests hit the
+  same-origin `/api` proxy, so no public base URL is needed.
 
 ## Deploy
 
@@ -48,15 +56,17 @@ mounted `./data` volume that persists per-day SQLite snapshots.
 The `web` Dockerfile runs `next dev` for the operator's HMR ergonomics; the
 `api` Dockerfile runs `uvicorn` against `api.main:app`. There is no auth, no
 PII, no money flow — the trust boundary is the LAN/Tailscale perimeter.
-Wider exposure requires the steps in `docs/audits/security-report.md`
-"Remediation roadmap".
+Exposing the app beyond the LAN is out of scope; if it ever comes up, add
+auth and re-evaluate the CORS/headers posture in `api/main.py` first.
 
 ## Documentation
 
 - `BRAINDUMP.md` — product brief, customer voice. Authoritative source
   for what the app must do.
-- `docs/audits/` — code-quality, error-handling, security, and SSOT
-  audit reports. Each one is cited by inline comments at the code sites
-  they justify; treat them as the rationale archive for non-obvious
-  decisions in the codebase.
-- `docs/audits/docs-consolidation.md` — most recent docs review.
+- `docs/audits/` — code-quality (`cleanup-report.md`), error-handling
+  (`error-handling-report.md`), security (`security-report.md`), and
+  SSOT (`ssot-report.md`) audit reports. Each one is cited by inline
+  comments at the code sites they justify; treat them as the rationale
+  archive for non-obvious decisions in the codebase.
+- `docs/audits/docs-consolidation.md` — log of the latest docs
+  reconciliation pass (what was rewritten, deleted, or escalated).

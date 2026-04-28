@@ -1,6 +1,8 @@
 "use client";
 
 import type { SimulationResult } from "../lib/types";
+import { money, num, pct } from "../lib/format";
+import { Spinner } from "./Spinner";
 
 interface SimulationSummaryProps {
   result: SimulationResult | null;
@@ -20,20 +22,6 @@ const CARD: React.CSSProperties = {
   gap: "0.5rem",
   minWidth: 180,
 };
-
-function pct(value: number | undefined | null, digits = 1): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return `${value.toFixed(digits)}%`;
-}
-
-function num(value: number | undefined | null, digits = 2): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return value.toFixed(digits);
-}
-
-function money(value: number): string {
-  return `$${value.toFixed(2)}`;
-}
 
 function defaultLabel(ticketId: string): string {
   if (ticketId === "balanced") return "Balanced";
@@ -193,7 +181,7 @@ export function SimulationSummary({
                   <>
                     <dt style={{ color: "var(--text-muted)" }}>Payout score</dt>
                     <dd style={{ margin: 0, textAlign: "right" }}>
-                      {num(t.payout_score)}
+                      {num(t.payout_score, 2)}
                     </dd>
                   </>
                 ) : null}
@@ -201,21 +189,21 @@ export function SimulationSummary({
                   <>
                     <dt style={{ color: "var(--text-muted)" }}>Confidence</dt>
                     <dd style={{ margin: 0, textAlign: "right" }}>
-                      {num(t.confidence)}
+                      {num(t.confidence, 2)}
                     </dd>
                   </>
                 ) : null}
                 <dt style={{ color: "var(--text-muted)" }}>Chalkiness</dt>
                 <dd style={{ margin: 0, textAlign: "right" }}>
-                  {pct(t.chalkiness_pct)}
+                  {pct(t.chalkiness_pct, 1)}
                 </dd>
                 <dt style={{ color: "var(--text-muted)" }}>Chaos cover</dt>
                 <dd style={{ margin: 0, textAlign: "right" }}>
-                  {pct(t.chaos_coverage_pct)}
+                  {pct(t.chaos_coverage_pct, 1)}
                 </dd>
                 <dt style={{ color: "var(--text-muted)" }}>Separator cover</dt>
                 <dd style={{ margin: 0, textAlign: "right" }}>
-                  {pct(t.separator_coverage_pct)}
+                  {pct(t.separator_coverage_pct, 1)}
                 </dd>
               </dl>
             </article>
@@ -223,24 +211,5 @@ export function SimulationSummary({
         </div>
       ) : null}
     </section>
-  );
-}
-
-function Spinner() {
-  return (
-    <span
-      aria-hidden
-      style={{
-        display: "inline-block",
-        width: 14,
-        height: 14,
-        border: "2px solid var(--border)",
-        borderTopColor: "var(--accent)",
-        borderRadius: "50%",
-        animation: "derby-spin 0.8s linear infinite",
-      }}
-    >
-      <style>{`@keyframes derby-spin{to{transform:rotate(360deg)}}`}</style>
-    </span>
   );
 }

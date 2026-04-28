@@ -11,6 +11,7 @@ floor, and an on-disk cache for stable entry pages are all built in.
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from collections.abc import Iterable
@@ -24,6 +25,8 @@ from bs4 import BeautifulSoup, Tag
 
 from api.model import Day, Horse, Race
 
+_log = logging.getLogger(__name__)
+
 SOURCE_NAME = "equibase"
 DEFAULT_TRACK_CODE = "CD"  # Churchill Downs
 BASE_URL = "https://www.equibase.com"
@@ -36,7 +39,17 @@ DEFAULT_USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 
-_SOFT_404_MARKERS = ("no data found", "no data is available", "no entries available")
+_SOFT_404_MARKERS = (
+    "no data found",
+    "no data is available",
+    "no entries available",
+    # Pre-publication response observed before the morning scratch window —
+    # Equibase serves an HTTP 200 with this phrase in place of the entries
+    # table. Without catching it here, parse_race_html falls through to
+    # _find_entries_table and emits an empty Race.
+    "entries are not available",
+    "entry information is not available",
+)
 _COUNTRY_SUFFIX_RE = re.compile(r"\s*\(([A-Z]{2,4})\)\s*$")
 _RACE_NUMBER_RE = re.compile(r"\bRace\s+(\d+)\b", re.IGNORECASE)
 _DISTANCE_RE = re.compile(
@@ -143,8 +156,15 @@ class EquibaseAdapter:
         self.close()
 
     def close(self) -> None:
+        # Teardown path — close failures must not propagate or they mask
+        # the actual error from the request that triggered cleanup. Match
+        # the TwinSpires close pattern (F2). Logged at debug so a systemic
+        # resource leak is still observable.
         if self._owns_client and self.http_client is not None:
-            self.http_client.close()
+            try:
+                self.http_client.close()
+            except Exception as exc:
+                _log.debug("Equibase HTTP client close failed: %s", exc)
             self._owns_client = False
 
     def _headers(self) -> dict[str, str]:

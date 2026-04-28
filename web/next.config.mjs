@@ -6,8 +6,7 @@ const API_BASE_URL = process.env.API_BASE_URL || "http://api:8000";
 // and uses no inline event handlers, so a tight CSP is achievable without
 // hashes/nonces. `unsafe-inline` for style-src is required because the
 // React tree uses inline `style={...}` props throughout (and Next.js
-// itself injects an inline style block for hydration). See
-// docs/audits/security-report.md S2 for the rationale per directive.
+// itself injects an inline style block for hydration).
 const SECURITY_HEADERS = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },

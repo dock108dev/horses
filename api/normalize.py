@@ -11,8 +11,7 @@ Four primitives the rest of the backend can compose:
 3. :func:`merge_horses` — combine the Equibase entry list (canonical
    for IDs / morning line) with the TwinSpires runner list (live odds).
    Match by post number first, then a normalized-name fallback with
-   ``difflib.get_close_matches(cutoff=0.85)`` per the
-   ``alternative-data-sources.md`` research note.
+   ``difflib.get_close_matches(cutoff=0.85)``.
 4. :func:`assign_pick5_sequence_roles` — tag the five legs of the Pick 5
    sequence on the supplied :class:`Race` objects.
 """

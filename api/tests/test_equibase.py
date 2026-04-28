@@ -143,6 +143,21 @@ def test_is_soft_404_recognises_no_data_marker() -> None:
     assert is_soft_404(SAMPLE_RACE_HTML) is False
 
 
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "no data found",
+        "no data is available",
+        "no entries available",
+        "entries are not available",
+        "entry information is not available",
+    ],
+)
+def test_is_soft_404_recognises_pre_publication_phrases(phrase: str) -> None:
+    html = f"<html><body><p>{phrase.upper()} for this race.</p></body></html>"
+    assert is_soft_404(html) is True
+
+
 # ---------- parse_race_html ----------
 
 

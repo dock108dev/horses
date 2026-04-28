@@ -6,11 +6,11 @@ a homepage GET, sends browser-like headers, throttles odds polls to a 30s
 per-race floor, and auto-retries via ``curl_cffi`` when plain ``httpx``
 gets 403'd. Scratches are detected by diffing successive program polls.
 
-LOC note: ~520 LOC, over the 500-line guideline but under the ~700-LOC
-extraction trigger. Adapter construction, JSON parsing, scratch diffing,
-the curl_cffi fallback wrapper, and HTTP plumbing are tightly coupled to
-the same private state on ``TwinSpiresAdapter``. See
-``docs/audits/cleanup-report.md`` "Files still >500 LOC".
+LOC note: ~526 LOC, over the 500-line guideline. Adapter construction,
+JSON parsing, scratch diffing, the curl_cffi fallback wrapper, and HTTP
+plumbing are tightly coupled to the same private state on
+``TwinSpiresAdapter``. See ``docs/audits/cleanup-report.md`` "Files
+still >500 LOC".
 """
 
 from __future__ import annotations
@@ -424,6 +424,7 @@ class TwinSpiresAdapter:
         # Treat 404 as "no payload yet" rather than an error: TwinSpires
         # returns 404 for races that have not been drawn / posted, and the
         # parsers already handle a None payload by returning an empty result.
+        # See docs/audits/error-handling-report.md F33.
         if getattr(resp, "status_code", 200) == 404:
             return None
         resp.raise_for_status()
