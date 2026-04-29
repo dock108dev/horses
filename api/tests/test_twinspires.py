@@ -293,7 +293,18 @@ def test_404_on_odds_returns_empty_list() -> None:
     assert adapter.fetch_odds("2026-05-02", 12) == []
 
 
-def test_403_without_fallback_raises() -> None:
+def test_403_without_fallback_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # ``TwinSpiresAdapter.__post_init__`` auto-builds a curl_cffi fallback
+    # when one wasn't passed and the optional dependency is installed; without
+    # this stub the ``fallback_client=None`` argument has no effect when
+    # curl_cffi is present and the F15 "no fallback configured" branch in
+    # ``_swap_to_fallback`` is unreachable. See
+    # ``docs/audits/error-handling-report.md`` finding F35.
+    monkeypatch.setattr(
+        twinspires, "_build_curl_cffi_client", lambda **_: None
+    )
     primary = FakeHttp(
         [
             FakeResponse(json_body={}),
@@ -301,6 +312,7 @@ def test_403_without_fallback_raises() -> None:
         ]
     )
     adapter = TwinSpiresAdapter(http_client=primary, fallback_client=None)
+    assert adapter.fallback_client is None
     with pytest.raises(httpx.HTTPStatusError):
         adapter.fetch_program("2026-05-02", 12, day="saturday")
 

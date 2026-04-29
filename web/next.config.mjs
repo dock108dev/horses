@@ -6,12 +6,15 @@ const API_BASE_URL = process.env.API_BASE_URL || "http://api:8000";
 // and uses no inline event handlers, so a tight CSP is achievable without
 // hashes/nonces. `unsafe-inline` for style-src is required because the
 // React tree uses inline `style={...}` props throughout (and Next.js
-// itself injects an inline style block for hydration).
+// itself injects an inline style block for hydration). CORP same-origin
+// (security-report S11) keeps the SPA pages from being embedded as opaque
+// resources cross-origin, complementing X-Frame-Options + frame-ancestors.
 const SECURITY_HEADERS = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "no-referrer" },
   { key: "X-Robots-Tag", value: "noindex, nofollow" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   {
     key: "Permissions-Policy",
     value: "interest-cohort=(), geolocation=(), camera=(), microphone=()",

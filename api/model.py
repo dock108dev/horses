@@ -30,7 +30,7 @@ The second half implements the probability blending model:
    ``flags`` after the prior steps; reads ``classification`` from
    :func:`classify_race`; reads drift series for the velocity component.
 
-LOC note: ~1377 LOC, well over the 500-line guideline. The probability
+LOC note: ~1374 LOC, well over the 500-line guideline. The probability
 layer operates directly on the Pydantic models defined here; a split
 into ``api/probability.py`` would force every probability import in the
 codebase + tests to change for no behavioral win. See

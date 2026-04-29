@@ -112,7 +112,7 @@ class TicketSimulationResult(BaseModel):
     chalkiness_pct: float
     chaos_coverage_pct: float
     separator_coverage_pct: float
-    # Bounds match the producer ranges. See security-report S11.
+    # Bounds match the producer ranges in ``api.tickets``.
     payout_score: float | None = Field(default=None, ge=0.0, le=1.0)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 

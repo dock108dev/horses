@@ -32,20 +32,27 @@ proxies `/api/*` through Next.js.
 
 ### Required configuration
 
-`.env.example` documents every variable. The ones that matter:
+`.env.example` covers the defaults the operator needs day-to-day; a
+couple of optional overrides are read directly by the API and aren't in
+the example file. The full set:
 
-- `API_CORS_ORIGINS` — explicit comma-separated origin allow-list.
-  `*` is rejected at startup; the rationale is documented inline at
-  `api/main.py` where the wildcard guard is enforced.
-- `DERBY_FRIDAY_DATE` / `DERBY_SATURDAY_DATE` — override the defaults
-  (`2026-05-01` / `2026-05-02`) when targeting a different year. Must
-  match `YYYY-MM-DD`.
-- `PICK5_DATA_MODE=fixture` — serve `POST /api/cards/{day}/refresh` and
-  `POST /api/odds/{day}/refresh` from `fixtures/pick5/*.json` instead of
-  hitting Equibase / TwinSpires. Per-request override: `?source=fixture`.
-- `API_BASE_URL` — used by the Next.js server-side fetches inside the
-  docker network (default `http://api:8000`). Browser requests hit the
-  same-origin `/api` proxy, so no public base URL is needed.
+- `API_CORS_ORIGINS` (in `.env.example`) — explicit comma-separated
+  origin allow-list. `*` is rejected at startup; the rationale is
+  documented inline at `api/main.py` where the wildcard guard is
+  enforced.
+- `PICK5_DATA_MODE=fixture` (in `.env.example`, commented) — serve
+  `POST /api/cards/{day}/refresh` and `POST /api/odds/{day}/refresh`
+  from `fixtures/pick5/*.json` instead of hitting Equibase / TwinSpires.
+  Per-request override: `?source=fixture`.
+- `API_BASE_URL` (in `.env.example`) — used by the Next.js server-side
+  fetches inside the docker network (default `http://api:8000`).
+  Browser requests hit the same-origin `/api` proxy, so no public base
+  URL is needed.
+- `DERBY_FRIDAY_DATE` / `DERBY_SATURDAY_DATE` (read by `api/main.py`,
+  not in `.env.example`) — override the defaults (`2026-05-01` /
+  `2026-05-02`) when targeting a different year. Must match
+  `YYYY-MM-DD`; an anchored regex check rejects anything else at
+  request time.
 
 ## Deploy
 

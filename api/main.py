@@ -8,7 +8,7 @@ Per the "Cache Strategy" section of ``BRAINDUMP.md``, the API never
 returns a blank payload during race day if a prior validated snapshot
 exists.
 
-LOC note: ~816 LOC, over the 500-line guideline. Every section here is
+LOC note: ~820 LOC, over the 500-line guideline. Every section here is
 FastAPI route wiring on the single app instance; an early ``routers/``
 split would fragment the request/response contract for no behavioral
 win. See ``docs/audits/cleanup-report.md`` "Files still >500 LOC".
@@ -241,7 +241,11 @@ app.add_middleware(
 
 # Security headers — defense-in-depth for the iPad browser surface. We do
 # not ship cookies or third-party assets; CSP is therefore strict by
-# default.
+# default. ``Cross-Origin-Resource-Policy: same-origin`` (security-report
+# S11) blocks opaque cross-origin embedding (``<img>``, ``<link
+# rel=preload>``, ``<script>``) of API responses on top of the CORS
+# allow-list — fetches still go through ``CORSMiddleware``, but a
+# malicious page can no longer pull the JSON in as a no-cors resource.
 @app.middleware("http")
 async def security_headers(request: Request, call_next: Any) -> Response:
     response: Response = await call_next(request)
@@ -253,6 +257,7 @@ async def security_headers(request: Request, call_next: Any) -> Response:
     )
     response.headers.setdefault("Cache-Control", "no-store")
     response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     return response
 
 

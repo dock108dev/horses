@@ -1,62 +1,69 @@
 # Cleanup Report — 2026-04-28
 
 Code-quality cleanup pass on the post-recovery branch. Tests stay green
-(`pytest api/tests` → 373 passed) and the frontend still typechecks
-(`npx tsc --noEmit` exits 0). No public API call signatures changed; no
-behavioral changes.
+(`pytest api/tests` → 376 passed, 1 skipped) and the frontend
+typechecks (`npx tsc --noEmit` exits 0; the only frontend change in
+this pass is a comment-only LOC-note refresh). No public API call
+signatures changed; no behavioral changes.
+
+This pass was a follow-up sweep after the SSOT, security, error-
+handling, and prior cleanup pass had each landed. It picks up the
+residual stale references that the previous pass's "Consistency
+changes" list claimed to strip but had only stripped from module-level
+docstrings, and refreshes the inline LOC notes to match the current
+files (the previous numbers had drifted again as the audits added
+inline rationale comments).
 
 ## Dead code removed
 
 This pass turned up **no removable dead code** — every public symbol in
 `api/`, `api/sources/`, and `web/` is wired to either a production
-caller or a passing test (verified by grep). The previous pass already
-deleted the `aiosqlite` dep, the `Spinner` duplicate, and the
-`KentuckyDerby` adapter; no further unused exports surfaced.
+caller or a passing test (verified by `pyflakes api/` returning clean
+and by grep across the frontend). No unused imports, commented-out
+blocks, or stale experiments surfaced.
 
-What did surface instead was a layer of stale rationale-comments — see
-"Consistency changes" below — pointing at research / issue files that no
-longer exist on disk. Those are dead references, not dead code; they
-were stripped in place.
+What did surface was one residual rationale-comment that pointed at a
+research file no longer on disk — see "Consistency changes" below. It
+is a dead reference, not dead code, and was rewritten in place to keep
+the actual rationale.
 
 ## Files refactored / split
 
-- `web/lib/format.ts` — **new file**. Houses the `pct(value, digits)`,
-  `num(value, digits)`, and `money(value)` formatters that were
-  previously duplicated in `SimulationSummary.tsx` and
-  `TicketBuilder.tsx`. The previous pass deferred this consolidation
-  because the two copies had different `digits` defaults (1 vs 2 in
-  `pct`); this pass acted on it by **removing the default** in the
-  shared helpers and making `digits` required at every call site, then
-  updating the four ambiguous callers to pass their old default
-  explicitly. Net behavioral diff: zero.
+None this pass. The previous pass's `web/lib/format.ts` extraction is
+still the canonical home for `pct` / `num` / `money`; nothing else
+crossed the bar where extraction would be a clean split rather than a
+shuffle of imports.
 
 ## Duplicates consolidated
 
-| Duplicate                                  | Old homes                                                                    | Canonical home (post-pass)        |
-| ------------------------------------------ | ---------------------------------------------------------------------------- | --------------------------------- |
-| `pct` / `num` / `money` formatters         | `web/components/SimulationSummary.tsx`,<br>`web/components/TicketBuilder.tsx` | `web/lib/format.ts`               |
+No new duplicates surfaced. Spot-checked candidates that turned out to
+be **non-duplicates** and are intentionally kept distinct:
 
-Call sites updated:
-
-- `SimulationSummary.tsx`: `pct(t.chalkiness_pct)` →
-  `pct(t.chalkiness_pct, 1)`; same for `chaos_coverage_pct` and
-  `separator_coverage_pct`. `num(t.payout_score)` → `num(..., 2)`;
-  `num(t.confidence)` → `num(..., 2)`.
-- `TicketBuilder.tsx`: `pct(hitRate)` → `pct(hitRate, 2)`;
-  `pct(ticket.hit_rate_pct)` → `pct(..., 2)`; `num(ticket.payout_score)`
-  → `num(..., 2)`; `num(ticket.confidence)` → `num(..., 2)`.
+| Candidate                                  | Why it's not a duplicate                                                                                                          |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `web/lib/odds.ts:formatPercent` vs<br>`web/lib/format.ts:pct` | `formatPercent(p, digits)` takes a fractional `[0, 1]` value and multiplies by 100 before formatting; `pct(value, digits)` takes an already-percent value (e.g. `chalkiness_pct`) and formats directly. The probability fields and the percent fields flow through different layers, so unifying would force every caller to remember which scale it has. |
+| `StaleBanner.tsx:fmt` vs<br>`DayHeader.tsx:fmt`              | Same name, different surface contracts: `StaleBanner` shows the full `toLocaleString()` for a cached-at warning and renders `"—"` when null; `DayHeader` shows only `toLocaleTimeString()` for the page header and renders `"never"` when null. The placeholder strings and the date/time precision are deliberately surface-specific.            |
 
 ## Files still >500 LOC
 
 Each is justified inline at the file head and re-stated here. LOC
-counts were also refreshed in this pass — every previous note had
-drifted (e.g. `model.py` was tagged ~905 LOC but is now 1377; `main.py`
-was tagged ~606 LOC but is now 816; `test_main.py` was tagged ~577 LOC
-but is now 932). The "extraction trigger" sub-clauses were dropped
-because they were already exceeded — keeping the trigger language while
-sailing past it was misleading.
+counts were refreshed in this pass — most had drifted by 2-5 lines as
+the security and error-handling passes added inline rationale comments
+on top of the previous cleanup pass's docstring tightening. The
+"extraction trigger" sub-clauses remain dropped because the files are
+already past every previous trigger; carrying the trigger language
+forward would still be misleading.
 
-### `api/model.py` — 1377 LOC (justify)
+### `api/main.py` — 820 LOC (justify, inline note refreshed)
+
+Every section is FastAPI route wiring on the single `app` instance.
+Splitting into `routers/` would fragment the `Envelope`
+request/response contract — every route returns the same shape and
+shares the `get_cache` / `get_equibase_adapter` /
+`get_twinspires_adapter` dependencies — for no behavioral win.
+Module-docstring LOC note refreshed `816 → 820` this pass.
+
+### `api/model.py` — 1374 LOC (justify, inline note refreshed)
 
 Pydantic `Horse` / `Race` / `OddsSnapshot` types + the entire
 probability layer (priors → blend → historical priors → flags →
@@ -77,8 +84,9 @@ section reads `Horse.flags` / `Horse.steam_horse` after every other
 pipeline step has run — so the import direction stays clean
 (`edge_model` → `model`, never the other way). Defer until model.py
 crosses 1500 LOC or the edge model gets a second consumer.
+Module-docstring LOC note refreshed `1377 → 1374` this pass.
 
-### `api/tickets.py` — 812 LOC (justify)
+### `api/tickets.py` — 812 LOC (justify, inline note refreshed)
 
 Candidate-pool construction (`_build_main_selections_classified`,
 `_build_main_selections`, `_build_backup_selections`,
@@ -86,31 +94,25 @@ Candidate-pool construction (`_build_main_selections_classified`,
 `_efficiency_ratio`), and Balanced/Safer/Upside scoring (`_Scored`,
 `_score_and_select`, `_simulate_candidates`, `_compute_ticket_edge`,
 `_generate_ticket_notes`, `_build_labeled_ticket`) all share the same
-`legs: list[Race]`, `horse_index`, and `Ticket` plumbing. A scoring-only
-split would force every internal helper to thread the candidate pool
-through a new module boundary for no behavioral win.
+`legs: list[Race]`, `horse_index`, and `Ticket` plumbing. A
+scoring-only split would force every internal helper to thread the
+candidate pool through a new module boundary for no behavioral win.
+Module-docstring LOC note refreshed `810 → 812` this pass after the
+`_efficiency_ratio` docstring grew by two lines (see "Consistency
+changes").
 
-### `api/main.py` — 816 LOC (justify, pre-existing inline note)
-
-Every section is FastAPI route wiring on the single `app` instance.
-Splitting into `routers/` would fragment the `Envelope`
-request/response contract — every route returns the same shape and
-shares the `get_cache` / `get_equibase_adapter` /
-`get_twinspires_adapter` dependencies — for no behavioral win. Inline
-note rewritten this pass to drop the obsolete "~700-LOC trigger"
-language now that the file is past it.
-
-### `api/sources/twinspires.py` — 526 LOC (justify, pre-existing inline note)
+### `api/sources/twinspires.py` — 531 LOC (justify, inline note refreshed)
 
 Adapter construction, JSON parsing, scratch diffing, the curl_cffi 403
 fallback wrapper, and HTTP plumbing all read/write the same private
 state (`_session_seeded`, `_owns_*_client`, `_last_odds_at`,
-`_last_runners`) on the dataclass. Inline note rewritten this pass to
-drop the obsolete "~700-LOC trigger" language.
+`_last_runners`) on the dataclass. Module-docstring LOC note refreshed
+`526 → 531` this pass — the security pass added a five-line rationale
+comment on the `__post_init__` curl_cffi auto-build branch.
 
 ### `api/sources/equibase.py` — 501 LOC (justify, no inline note)
 
-Just barely over the line. Adapter (`EquibaseAdapter`) and parsing
+Unchanged at 501 LOC. Adapter (`EquibaseAdapter`) and parsing
 helpers (`parse_race_html` + the half-dozen `_parse_*` / `_find_*`
 helpers) all share the soft-404 markers, the country-suffix regex, and
 the `_table_header_cells` index. A parser-only split would force every
@@ -118,17 +120,15 @@ parser to take a `_table_header_cells` arg or recompute it; the marker
 constants would have to be re-exported. Not worth the churn at 501
 LOC.
 
-### `web/components/TicketBuilder.tsx` — 537 LOC (justify, inline note refreshed in this pass)
+### `web/components/TicketBuilder.tsx` — 537 LOC (justify, inline note refreshed)
 
 The `TicketBuilder` → `BudgetPanel` → `TicketCard` tree shares
 `legs`, `horsesById`, `dispositions`, and `simResultsById` props. The
 sub-components are private to the file (only `TicketBuilder` is
 exported); splitting them out would only shuffle imports without
-changing the data flow. (The inline LOC note at the top of the file
-reads `~553 LOC` — the shared-formatter extraction landed after that
-note was written; the docs-consolidation pass treats `~553` as the
-documented approximation and the actual count `537` as the current
-truth.)
+changing the data flow. Inline LOC note refreshed `~553 → ~537` this
+pass to match the actual current count after the prior pass's shared-
+formatter extraction.
 
 ### Test files >500 LOC (justify)
 
@@ -137,56 +137,41 @@ truth.)
   blend, flags, movement, classification, and edge-model tests share
   one fixture set. A per-stage split would either duplicate fixtures or
   introduce a `conftest.py` indirection.
-- `api/tests/test_main.py` — 932 LOC. Inline note refreshed this pass —
-  it documents the same shared-fixture rationale (`FakeEquibase`,
-  `FakeTwinSpires`, `_client_with_overrides`, `_seed_cache`) as the
-  earlier version, just with the corrected LOC and without the obsolete
-  "~800-LOC trigger" clause.
+- `api/tests/test_main.py` — 800 LOC. The shared fixtures
+  (`FakeEquibase`, `FakeTwinSpires`, `_client_with_overrides`,
+  `_seed_cache`) were already extracted to `api/tests/conftest.py` by
+  the prior pass; the remaining 800 LOC is per-route assertion code
+  that shares no further structure with the smaller per-domain test
+  files. Inline LOC note was already removed by the prior pass — no
+  change this pass.
 - `api/tests/test_tickets.py` — 656 LOC. Mirrors `api/tickets.py`;
   per-rule splits (selection / fit / scoring) would duplicate the
   shared `_build_legs` / `_make_horse` factories.
 
 ## Consistency changes made
 
-- `api/main.py` — module-docstring LOC note refreshed (606 → 816)
-  and the obsolete "extraction trigger" clause removed.
-- `api/model.py` — module-docstring LOC note refreshed (905 → 1377)
-  and the obsolete "probability-layer-at-400-LOC trigger" clause
-  removed; four stale `.aidlc/research/*.md` references stripped from
-  inline comments (`strategy-output-format` ×2,
-  `ownership-proxy-numbers`, `confidence-score-formula`); one stale
-  `movement-weight-calibration.md` reference stripped from
-  `_compute_velocity`'s reference-window comment; the `ISSUE-010`
-  reference in the `FLAG_LIKELY_SEPARATOR` comment dropped (issue file
-  doesn't exist) — replaced with a plain "producer not yet wired"
-  note that preserves the actual rationale.
-- `api/tickets.py` — module-docstring LOC note refreshed (800 → 810)
-  and "~900-LOC trigger" clause removed; two `.aidlc/research/*.md`
-  references stripped from the docstring (`spend-efficiency-formula`,
-  `payout-score-formula`).
-- `api/sim.py` — `.aidlc/research/payout-score-formula.md` reference
-  stripped from the `PAYOUT_SCORE_EXPONENT` comment.
+- `api/tickets.py` — module-docstring LOC note refreshed
+  `810 → 812`. The `_efficiency_ratio` function docstring previously
+  read `Ranking-equivalent of ΔP/ΔCost — see ``spend-efficiency-formula.md``.`
+  The cited research note does not exist on disk; the prior pass had
+  stripped two `.aidlc/research/*.md` references from the
+  module-level docstring but missed this one in the function-level
+  docstring. Rewritten in place to spell out the rationale that the
+  reference was standing in for ("within a single leg this is monotone
+  in `fp`; the `n_leg / p_leg` factor lets the trim/add loops compare
+  candidates across legs of different width").
+- `api/main.py` — module-docstring LOC note refreshed `816 → 820`
+  to match the current file after the security pass added the
+  Cross-Origin-Resource-Policy rationale block.
+- `api/model.py` — module-docstring LOC note refreshed `1377 → 1374`
+  (the file lost three lines as the security pass tightened a comment
+  block).
 - `api/sources/twinspires.py` — module-docstring LOC note refreshed
-  (520 → 526) and "~700-LOC trigger" clause removed.
-- `api/cache.py` — module-docstring `odds-snapshot-storage-backend.md`
-  reference stripped; a follow-on "per the storage research note"
-  phrase in `store_odds_batch` also stripped (the rationale "BEGIN/COMMIT
-  is the single biggest performance lever" survives).
-- `api/normalize.py` — `alternative-data-sources.md` research-note
-  reference stripped from the module docstring.
-- `api/tests/test_main.py` — module-docstring LOC note refreshed
-  (577 → 932) and "~800-LOC trigger" clause removed.
-- `web/lib/odds.ts` — `frontend-edge-ui-layout` research reference
-  stripped from the `driftMagnitude` comment.
-- `web/lib/format.ts` — **new file** consolidating `pct`/`num`/`money`.
-- `web/components/SimulationSummary.tsx` — local `pct` / `num` / `money`
-  definitions deleted; `import { money, num, pct } from "../lib/format"`
-  added; the four call sites that relied on the default `digits` value
-  now pass it explicitly.
-- `web/components/TicketBuilder.tsx` — same Spinner-style consolidation
-  for `pct` / `num` / `money`; LOC note refreshed at pass time
-  (544 → 553), since drifted to `537` after the formatter extraction;
-  four call sites updated to pass `digits` explicitly.
+  `526 → 531`.
+- `web/components/TicketBuilder.tsx` — top-of-file LOC note
+  refreshed `~553 → ~537` to match the current file. The previous
+  cleanup-report explicitly noted this drift but left the comment
+  unchanged; this pass acted on it.
 
 ## Things deliberately not touched (and why)
 
@@ -201,8 +186,14 @@ truth.)
   truth for day-config and the `/api/pick5/days` self-describe route
   reads them. Removing from `__all__` would semantically downgrade them
   to internal config and silently un-document the SSOT designation.
+- `web/lib/odds.ts:formatPercent` next to `web/lib/format.ts:pct` —
+  they look like duplicates but are not. See "Duplicates consolidated"
+  above for the kept-distinct rationale.
+- `StaleBanner.tsx:fmt` next to `DayHeader.tsx:fmt` — same. See
+  "Duplicates consolidated".
 
 ## Escalations
 
-None. Every finding was either acted on (stripped, refreshed, or
-extracted) or justified inline + in this report.
+None. Every finding was either acted on (LOC notes refreshed, the
+stale `_efficiency_ratio` reference rewritten) or justified inline + in
+this report.

@@ -1,6 +1,6 @@
 "use client";
 
-// LOC note: ~553 LOC, over the 500-line guideline. The budget-tab,
+// LOC note: ~537 LOC, over the 500-line guideline. The budget-tab,
 // keep/drop disposition, and per-leg breakdown all read the same
 // `legs`/`horsesById`/`dispositions` props; splitting BudgetPanel /
 // TicketCard into separate files would just shuffle the imports without

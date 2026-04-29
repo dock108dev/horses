@@ -1,843 +1,271 @@
+# BRAINDUMP.md — Phase: Friday-Morning Readiness
 
-# BRAINDUMP.md — Derby Pick 5 API/Data Loading Recovery
-
-## Current state
-
-The Derby Pick 5 app shell is up, navigation works, and the Friday/Saturday routes render.
-
-But the actual workflow is dead:
-
-
-## Important correction
-
-There are multiple Pick 5 sequences across the cards both days.
-
-So the app model cannot be:
-
-```text
-Friday = Kentucky Oaks Pick 5
-Saturday = Kentucky Derby Pick 5
-```
-
-- Friday opens.
-- Saturday opens.
-- `Refresh Card` does not load a card.
-- `Refresh Odds` does not load odds.
-- `Run Sim` has nothing to run against.
-- `Build Tickets` has no usable card/odds/sim state.
-- UI still says:
-  - `Last card refresh: never`
-  - `Last odds refresh: never`
-  - `Source: —`
-  - `No card loaded yet — tap Refresh Card.`
-- Swagger/API is either blank or hanging on most options.
-
-This should be handled as a backend/API/data contract problem first. Do not start polishing the UI until the data path is proven end-to-end.
+Today is **2026-04-28 (Tuesday)**.
+Oaks is **2026-05-01 (Friday)**. Derby is **2026-05-02 (Saturday)**.
+We have **~3 days** before live entries publish on Equibase, and **~3 days** to
+prove the entire pipeline runs cleanly so race-morning is just "click the
+button and get tickets."
 
 ---
 
-# Goal
+## What this phase IS NOT
 
-Get one complete day working end-to-end:
+- Not building a real model. Priors are still hand-tuned constants in
+  `data/priors.json`. No historical results ingest, no fitter, no backtest.
+  That is a future phase.
+- Not adding new endpoints, new UI screens, or new ticket strategies.
+- Not refactoring. The wires work — we're proving they hold under realistic
+  inputs.
 
-1. App opens Friday or Saturday.
-2. User clicks `Refresh Card`.
-3. Card data appears.
-4. User clicks `Refresh Odds`.
-5. Odds appear and are associated to the right horses/races.
-6. User clicks `Run Sim`.
-7. Sim results are visible and tied to the loaded card.
-8. User enters budget/base unit.
-9. User clicks `Build Tickets`.
-10. Tickets are produced, priced correctly, and explain why they were built.
-
-This pass is about making the wires correct. Not adding new features.
+If a task doesn't make Friday morning safer, it doesn't belong in this phase.
 
 ---
 
-# Main suspicion
+## Definition of "ready" (exit criteria)
 
-The frontend is probably doing what it can, but the backend/API layer is not returning valid, timely data.
+By **Thursday night 2026-04-30** all of these must be green:
 
-The biggest red flags:
+1. **Fixture E2E** — full workflow runs against fixtures, produces non-empty
+   data, and matches a checked-in golden snapshot:
+   `refresh card → refresh odds → simulate → build tickets`.
+2. **Live E2E** — same workflow runs against real Equibase + TwinSpires for
+   Friday's card, validates clean, and stores a real `last_good_card` in
+   `data/odds_2026-05-01.db`.
+3. **Stale-fallback proven** — after a successful live refresh, simulate
+   Equibase being down (block the host or stub the adapter to raise) and
+   confirm the API still returns the cached card with `stale=true` and a
+   redacted error.
+4. **Pre-warmed cache** — Friday's card committed to SQLite, so race morning
+   is a re-fetch, not a cold start.
+5. **iPad reachable** — the iPad on the LAN can hit `/api/health`,
+   `/api/cards/friday`, and the SPA at `:3000` with no CORS errors.
+6. **Runbook printed/saved** — race-morning steps fit on one screen and the
+   operator does not have to think.
 
-- Swagger hangs or returns blank.
-- App buttons never update timestamps.
-- Source stays `—`.
-- Empty state never clears.
-- Both Friday and Saturday behave the same way.
-- No visible difference between “not clicked yet”, “loading”, “failed”, and “loaded empty”.
-
-That means we need to prove the system from the bottom up:
-
-```text
-external/source data
-→ backend service
-→ API route
-→ Swagger response
-→ frontend fetch
-→ frontend state update
-→ rendered card/odds/sim/tickets
-````
-
-Right now that chain is broken somewhere before or at the API layer.
+If any of these are red on Thursday night, fixture mode is the fallback —
+the app must still produce tickets from the fixture card.
 
 ---
 
-# Phase 1 — Stop guessing and map the actual API contract
+## Pre-flight test plan (runnable TODAY, no live data needed)
 
-## Find every frontend API call
+Everything in this section can run right now in fixture mode. Goal: prove
+shape, behavior, and timing before Equibase publishes.
 
-Search the frontend for every call related to:
+### A. Smoke (5 min)
 
-* card refresh
-* odds refresh
-* run sim
-* build tickets
-* Friday route
-* Saturday route
-* day selection
-* Derby/Oaks config
-* Pick 5 sequence
+```bash
+# Bring up the stack in fixture mode.
+PICK5_DATA_MODE=fixture docker compose up -d --force-recreate api web
 
-Things to search:
+# Health.
+curl -fsS http://localhost:8000/api/health
 
-```text
-fetch(
-axios
-Refresh Card
-Refresh Odds
-Run Sim
-Build Tickets
-pick5
-derby
-oaks
-card
-odds
-simulate
-tickets
-api/
+# Both days, full workflow.
+for day in friday saturday; do
+  curl -fsS -X POST   "http://localhost:8000/api/cards/$day/refresh?source=fixture" | jq '.errors,.stale,(.data|length)'
+  curl -fsS -X POST   "http://localhost:8000/api/odds/$day/refresh?source=fixture"  | jq '.errors,.stale,(.data|length)'
+  curl -fsS -X POST   "http://localhost:8000/api/simulate/$day"                     | jq '.errors,.stale,(.data.tickets|length)'
+  curl -fsS -X POST   "http://localhost:8000/api/tickets/$day/build"                | jq '.errors,.stale,(.data.variants|length)'
+done
 ```
 
-Create a small table in the repo notes:
+Expected for every line: `errors=[]`, `stale=false`, length > 0.
 
-| UI action     | frontend file | API endpoint | method | expected request | expected response |
-| ------------- | ------------- | ------------ | ------ | ---------------- | ----------------- |
-| Refresh Card  | TBD           | TBD          | TBD    | TBD              | TBD               |
-| Refresh Odds  | TBD           | TBD          | TBD    | TBD              | TBD               |
-| Run Sim       | TBD           | TBD          | TBD    | TBD              | TBD               |
-| Build Tickets | TBD           | TBD          | TBD    | TBD              | TBD               |
+### B. Unit + integration suite
 
-Do not continue until this is known.
+```bash
+docker compose exec api pytest -q
+```
+
+Currently 12 test files under `api/tests/`. Must stay green. If any test
+references live network, mark it `@pytest.mark.live` and skip by default.
+
+### C. Golden snapshot test (NEW — write this)
+
+Add `api/tests/test_friday_e2e.py` (or similar):
+
+- Calls `load_card("friday")` + `load_odds_records("friday", ...)` + simulate
+  + build_tickets via the in-process app (no HTTP, no docker) using the
+  FastAPI `TestClient`.
+- Asserts the response envelope shape, `errors=[]`, race count = 5, runner
+  counts per leg, that `finalProbability` per race sums to 1.0 ± 0.01, and
+  that `tickets.variants` is non-empty across `STANDARD_BUDGETS`.
+- Optionally pickles a checked-in JSON of the simulate result so a future
+  refactor that silently changes blend math fails this test loudly.
+
+This is the single most important test we don't have yet.
+
+### D. Stale-fallback test (NEW)
+
+Add `api/tests/test_stale_fallback.py`:
+
+- Pre-populate the SQLite cache with a known `last_good_card`.
+- Replace `EquibaseAdapter.fetch_race` with a stub that raises.
+- Assert `POST /api/cards/friday/refresh` returns `stale=true`,
+  `source=cache`, `errors` non-empty, and `data` is the pre-populated card.
+- Assert the redaction strips URLs and absolute paths from the error string.
+
+### E. Timing dry run
+
+```bash
+PICK5_DATA_MODE=fixture time curl -fsS -X POST \
+  "http://localhost:8000/api/simulate/friday" -d '{"n_iterations":50000}' \
+  -H 'content-type: application/json' >/dev/null
+```
+
+Expected: well under 10s for 50k iterations on the Mac mini. If sim is
+slower than that, file it but do not optimize this phase — fixture data is
+synthetic and a real card may differ.
+
+### F. iPad reachability (do this from the iPad, not the host)
+
+- Open Safari → `http://mac-mini.local:3000` → confirm SPA loads.
+- DevTools/console: hit `http://mac-mini.local:8000/api/health`.
+- If CORS blocks, set `API_CORS_ORIGINS` in `.env` to include the actual
+  origin Safari uses. The wildcard `*` is rejected at startup
+  (`api/main.py:221`).
 
 ---
 
-# Phase 2 — Test the backend directly
+## Live cutover plan (when Equibase publishes — likely Wed 4/29 or Thu 4/30)
 
-For each endpoint found above, test with curl or Swagger.
+You'll know entries are up when `curl -fsS -I "https://www.equibase.com/static/entry/CD050126R08-EQB.html"` returns 200 with a body that doesn't contain "no data found" / "entries are not available".
 
-We need to know which category each endpoint falls into:
+### Step 1 — switch off fixture mode
 
-## Possible states
+Drop `PICK5_DATA_MODE=fixture` from the env (or leave the var unset). Restart
+the api container. Fixture files stay mounted; they're the fallback if live
+parsing breaks.
 
-### 1. Route does not exist
+### Step 2 — refresh both days, capture output
 
-Symptoms:
-
-* 404
-* frontend silently catches it
-* Swagger missing route
-
-Fix:
-
-* add route
-* update frontend to correct route
-* add integration test
-
-### 2. Route exists but hangs
-
-Symptoms:
-
-* Swagger spinner forever
-* curl never finishes
-* no frontend error except empty screen
-
-Likely causes:
-
-* external API call has no timeout
-* scraper request is blocking
-* async function is waiting forever
-* DB query is locked or too broad
-* app is trying to scrape live data during the request
-* missing source config causing retry loop
-
-Fix:
-
-* every external call needs a hard timeout
-* route should return a real error payload
-* long-running work should not block the request unless intentionally synchronous
-* log where the hang happens
-
-### 3. Route returns blank but 200
-
-Symptoms:
-
-```json
-[]
+```bash
+for day in friday saturday; do
+  curl -fsS -X POST "http://localhost:8000/api/cards/$day/refresh" | tee /tmp/card-$day.json | jq '.errors,.stale,(.data|length)'
+done
 ```
 
-or
+Expected: `errors=[]`, `stale=false`, length=5 for each day.
 
-```json
-{}
+If `errors` is non-empty, **diff against the fixture**. The most likely
+failure modes (in order of probability):
+
+1. **Equibase HTML shape drift** — `_find_entries_table` selector misses,
+   `_parse_entries` returns empty horse list. Fix in
+   `api/sources/equibase.py`. Re-run.
+2. **TwinSpires program JSON shape drift** — affects odds, not card
+   structure; per-leg failure is downgraded to a warning at
+   `api/refresh.py:60`, so the card should still validate.
+3. **Pick 5 sequence wrong** — `get_pick5_legs(2026, "friday")` returns
+   `[8,9,10,11,12]` from the hardcoded table (`api/sources/pick5.py:44`).
+   If Churchill changed the program, the scraper override at
+   `pick5.py` step 2 catches it and logs a warning; verify the warning
+   matches the actual track program.
+4. **Pre-publication soft-404** on a single race — wait an hour, retry.
+
+### Step 3 — refresh odds, sim, tickets against live card
+
+Same loop as the fixture smoke, minus `?source=fixture`. Confirm:
+
+- `/api/odds/friday/refresh` → `data` has 5 races, each with non-empty
+  `runners`, `cached_at` is recent, `source=twinspires`.
+- `/api/simulate/friday` with default iterations → `tickets` array is
+  non-empty.
+- `/api/tickets/friday/build` → `variants` covers STANDARD_BUDGETS.
+
+### Step 4 — store the warm card
+
+The successful refresh writes to `data/odds_2026-05-01.db`. Confirm:
+
+```bash
+docker compose exec api sqlite3 /data/odds_2026-05-01.db \
+  "SELECT count(*) FROM cards WHERE validated=1;"
 ```
 
-or
+Should return ≥ 1. Now even if Equibase or TwinSpires goes down Friday
+morning, we serve the cached card with `stale=true`.
 
-```json
-{ "races": [] }
-```
+### Step 5 — repeat Step 2–4 for Saturday
 
-Likely causes:
-
-* no data seeded
-* wrong date
-* wrong day key
-* wrong track key
-* wrong race numbers
-* Friday/Saturday mismatch
-* backend returns empty success instead of data failure
-
-Fix:
-
-* distinguish “loaded zero races” from “failed to load”
-* validate date/day/track/race sequence before returning success
-* return structured warning/error
-
-### 4. Route returns data but frontend does not render
-
-Symptoms:
-
-* Swagger/curl look good
-* app remains empty
-
-Likely causes:
-
-* response shape mismatch
-* camelCase vs snake_case mismatch
-* frontend expects `races`, backend returns `card`
-* frontend expects `horses`, backend returns `entries`
-* frontend state update not firing
-* failed JSON parse
-* CORS/proxy/env URL issue
-
-Fix:
-
-* align response contract
-* add frontend console logging temporarily
-* add typed response validation
-* render API error state
+Same exact steps, `day=saturday`. Saturday's card may publish later than
+Friday's; if so, leave it for Thursday night.
 
 ---
 
-# Phase 3 — Add brutal but useful request logging
+## Race-morning runbook (Friday 2026-05-01)
 
-For this recovery pass, every workflow endpoint should log:
+One-screen checklist. Operator is on the iPad; Mac mini is on and on the LAN.
 
-```text
-[Pick5] request started
-[Pick5] day=Friday/Saturday
-[Pick5] date=...
-[Pick5] track=...
-[Pick5] source=...
-[Pick5] external call started
-[Pick5] external call completed in Xms
-[Pick5] parsed races=N
-[Pick5] parsed runners=N
-[Pick5] response returned
+```
+1. Open SPA on iPad → http://mac-mini.local:3000
+2. Tap Friday tab.
+3. Tap "Refresh Card."          → expect green check, "Source: equibase+twinspires"
+4. Tap "Refresh Odds."          → expect green check, runner odds visible
+5. Tap "Run Sim."               → expect win-rate column populated
+6. Enter budget + base unit.
+7. Tap "Build Tickets."         → expect tickets with explanations
+8. (As scratches happen) Tap "Refresh Odds" again before each leg's MTP < 2.
 ```
 
-If it fails:
+If anything goes red:
 
-```text
-[Pick5] request failed
-endpoint=...
-day=...
-date=...
-source=...
-error_type=...
-error_message=...
-```
+- `stale=true` with `errors` mentioning a leg → odds for that leg failed,
+  the card is still cached. Tap Refresh Odds again in 60s.
+- `data=[]` → live source has fully fallen over AND no cached card exists.
+  This should not happen if Thursday-night warm-cache was done. Recovery:
+  `ssh mac-mini`, `PICK5_DATA_MODE=fixture docker compose up -d
+  --force-recreate api`, accept that you're betting on yesterday's
+  fixture-shaped card. (This is the "we are screwed but not blank" path.)
+- iPad shows nothing → `/api/health` from Safari devtools tells you whether
+  it's the API, the network, or the SPA.
 
-If it returns empty:
-
-```text
-[Pick5] empty card returned
-day=...
-date=...
-track=...
-source=...
-reason=...
-```
-
-Swagger hanging without logs is unacceptable. The backend needs to say exactly where it gets stuck.
+Phone numbers for the operator if shit breaks: N/A — this is a one-person
+operation; the runbook above is the recovery plan.
 
 ---
 
-# Phase 4 — Add timeouts everywhere
+## Things we are explicitly NOT doing this phase
 
-No API route should hang forever.
-
-For every source call:
-
-* set a timeout
-* catch timeout separately
-* return a structured error
-* do not let the UI sit in permanent nothingness
-
-Example response shape:
-
-```json
-{
-  "ok": false,
-  "status": "source_timeout",
-  "message": "Card source timed out while loading Saturday.",
-  "day": "Saturday",
-  "source": "TBD",
-  "data": null
-}
-```
-
-For empty but successful:
-
-```json
-{
-  "ok": false,
-  "status": "empty_card",
-  "message": "No races were returned for Saturday.",
-  "day": "Saturday",
-  "source": "TBD",
-  "data": {
-    "races": []
-  }
-}
-```
-
-For success:
-
-```json
-{
-  "ok": true,
-  "status": "loaded",
-  "message": "Loaded Saturday card.",
-  "day": "Saturday",
-  "source": "TBD",
-  "data": {
-    "races": []
-  }
-}
-```
-
-Even if the current app does not use this exact shape, the important part is that success, empty, and failure must not all look the same.
+- Real probabilistic model from past results. Priors stay as
+  `data/priors.json` constants; the so-called "modelProbability" remains a
+  re-labeled `currentOdds × race_type multiplier` (`api/model.py:332`).
+- Beyer / pace / class / workouts / horse history — none of these are in
+  the schema and we are not adding them this week.
+- New scrapers (results pages, charts, BRIS).
+- New ticket strategies. STANDARD_BUDGETS + Safer/Upside is what we run on
+  Friday.
+- LOC reduction or refactor of `api/main.py` (815 LOC) and `api/model.py`
+  (1374 LOC). They work. Touch only if a bug forces it.
 
 ---
 
-# Phase 5 — Verify the day/date/track assumptions
+## Open questions to resolve BEFORE Thursday
 
-This app has two explicit products:
-
-* Friday = Kentucky Oaks Pick 5
-* Saturday = Kentucky Derby Pick 5
-
-The backend should not be guessing loosely.
-
-Add/verify one single source of truth like:
-
-```ts
-const PICK5_DAYS = {
-  friday: {
-    label: "Friday",
-    productName: "Kentucky Oaks Pick 5",
-    track: "Churchill Downs",
-    date: "YYYY-MM-DD",
-    sequence: [/* race numbers */]
-  },
-  saturday: {
-    label: "Saturday",
-    productName: "Kentucky Derby Pick 5",
-    track: "Churchill Downs",
-    date: "YYYY-MM-DD",
-    sequence: [/* race numbers */]
-  }
-}
-```
-
-Or equivalent backend config.
-
-Need to confirm:
-
-* Friday route passes Friday key.
-* Saturday route passes Saturday key.
-* API receives the right key.
-* Backend maps key to the correct date.
-* Backend maps key to the correct track.
-* Backend maps key to the correct race sequence.
-* Odds loader uses the same race/horse identifiers as card loader.
-* Sim uses the loaded card, not a stale hardcoded card.
-* Ticket builder uses the latest sim and odds state.
-
-No duplicate Friday/Saturday logic scattered across frontend and backend.
+1. Has the operator (Mike) actually opened the SPA on the iPad on the LAN
+   yet? If not, do that today — discovering CORS / hostname problems
+   Friday morning is not acceptable.
+2. Is `data/` on the host the same volume the container writes to? Verify
+   by checking `data/odds_2026-05-01.db` exists on the host after a live
+   refresh. If not, the warm cache won't survive a container restart.
+3. Where does the operator type the budget on race morning — directly in
+   the SPA, or in Swagger? If SPA, has every numeric input been clicked
+   on the iPad and not just the desktop browser?
+4. What's the plan if the Mac mini reboots Friday morning? `docker compose`
+   should `restart: unless-stopped` (already configured), but verify the
+   actual auto-start by `sudo reboot` Wednesday.
 
 ---
 
-# Phase 6 — Prove the backend can return fixture data
-
-Before fighting live source data, add a fixture/fallback mode.
-
-Create a known-good local fixture for each day:
-
-```text
-fixtures/pick5/friday-card.json
-fixtures/pick5/saturday-card.json
-fixtures/pick5/friday-odds.json
-fixtures/pick5/saturday-odds.json
-```
-
-Then add either:
-
-```text
-?source=fixture
-```
-
-or an env flag:
-
-```text
-PICK5_DATA_MODE=fixture
-```
-
-Acceptance test:
-
-* Swagger returns Friday fixture card.
-* Swagger returns Saturday fixture card.
-* Frontend can render Friday fixture card.
-* Frontend can render Saturday fixture card.
-* Sim can run against fixture card.
-* Ticket builder can build against fixture odds.
-
-This is critical because it separates:
-
-```text
-frontend/backend contract bugs
-```
-
-from:
-
-```text
-live data source bugs
-```
-
-Right now everything is blended together.
-
----
-
-# Phase 7 — Frontend needs visible operational states
-
-Current UI says nothing useful beyond “No card loaded yet.”
-
-That is okay before first click, but after a click it needs to show what happened.
-
-For each button, add state:
-
-* idle
-* loading
-* success
-* empty
-* failed
-* timed out
-
-Examples:
-
-```text
-Loading Saturday card...
-```
-
-```text
-Card source timed out. Check API logs or try fixture mode.
-```
-
-```text
-Card endpoint returned 0 races for Saturday.
-```
-
-```text
-Loaded 5 races / 58 horses from Churchill Downs.
-```
-
-For debugging, render a small dev-only diagnostics panel:
-
-```text
-Day: Saturday
-Card endpoint: /api/...
-Card status: failed
-HTTP status: 504
-Last error: source timeout
-Last attempted: 3:54 PM
-```
-
-This app is currently too silent. Silent failure is making it impossible to tell whether the UI is broken, the API is broken, or the source data is empty.
-
----
-
-# Phase 8 — Button behavior rules
-
-## Refresh Card
-
-Must:
-
-* call the card endpoint
-* set loading state
-* clear prior error
-* receive card response
-* validate races exist
-* update card state
-* update `Last card refresh`
-* update `Source`
-* render races
-
-Must not:
-
-* silently do nothing
-* leave timestamp as `never` after successful load
-* call odds/sim/ticket endpoints before card exists unless explicitly designed to
-
-## Refresh Odds
-
-Must:
-
-* require loaded card first, or clearly explain that no card is loaded
-* call odds endpoint with day/card identifiers
-* validate odds returned
-* attach odds to known horses
-* show unmatched odds/horses if any
-* update `Last odds refresh`
-* update source if relevant
-
-Must not:
-
-* overwrite card
-* silently accept odds for unknown horses
-* return success with no matched odds
-
-## Run Sim
-
-Must:
-
-* require loaded card
-* preferably use odds if available, but should say whether it used odds, morning line, or default priors
-* produce race-level probabilities
-* produce sequence-level outputs
-* show timestamp/status
-
-Must not:
-
-* run against empty card
-* pretend sim succeeded with no runners
-
-## Build Tickets
-
-Must:
-
-* require loaded card
-* require sim output
-* preferably require odds/value output
-* use budget and base unit
-* show ticket count
-* show total cost
-* show unused budget
-* explain keys/spreads/value decisions
-
-Must not:
-
-* build empty tickets
-* exceed budget
-* ignore base unit
-* silently fail
-
----
-
-# Phase 9 — Data model sanity checks
-
-Each race needs at minimum:
-
-```json
-{
-  "raceNumber": 8,
-  "track": "Churchill Downs",
-  "postTime": "...",
-  "distance": "...",
-  "surface": "...",
-  "runners": [
-    {
-      "programNumber": "1",
-      "horseName": "...",
-      "morningLine": "...",
-      "scratched": false
-    }
-  ]
-}
-```
-
-Odds need to match by stable identifiers:
-
-```json
-{
-  "raceNumber": 8,
-  "programNumber": "1",
-  "horseName": "...",
-  "winOdds": "...",
-  "impliedProbability": 0.12,
-  "source": "...",
-  "observedAt": "..."
-}
-```
-
-Potential matching problems to watch:
-
-* horse names with punctuation differences
-* program number changes
-* coupled entries like `1` and `1A`
-* scratches
-* race number mismatch
-* Friday/Saturday date mismatch
-* stale odds from previous day
-* odds source using a different track/date key
-
-The app should show unmatched odds instead of dropping them silently.
-
----
-
-# Phase 10 — Swagger/API cleanup
-
-Swagger being blank or hanging is a blocker.
-
-Fix priorities:
-
-1. Swagger page loads reliably.
-2. Endpoint list is visible.
-3. Each Pick 5 endpoint has a clear description.
-4. Each endpoint has a sample request.
-5. Each endpoint has a sample success response.
-6. Each endpoint has a sample error response.
-7. Long-running endpoints have timeout behavior.
-8. Routes do not perform unbounded external work during schema generation.
-
-If Swagger itself hangs because route imports trigger source calls, that needs to be fixed immediately. Importing API modules should not fetch live data.
-
----
-
-# Phase 11 — Backend route design
-
-Prefer explicit workflow routes while debugging:
-
-```text
-GET  /api/pick5/days
-POST /api/pick5/{day}/refresh-card
-POST /api/pick5/{day}/refresh-odds
-POST /api/pick5/{day}/run-sim
-POST /api/pick5/{day}/build-tickets
-GET  /api/pick5/{day}/state
-```
-
-The frontend can then hydrate from state and each action can update state.
-
-A route like this is very useful:
-
-```text
-GET /api/pick5/{day}/debug
-```
-
-It should return:
-
-```json
-{
-  "day": "Saturday",
-  "config": {
-    "date": "...",
-    "track": "Churchill Downs",
-    "sequence": [8, 9, 10, 11, 12]
-  },
-  "card": {
-    "loaded": false,
-    "raceCount": 0,
-    "runnerCount": 0,
-    "lastRefresh": null,
-    "lastError": null
-  },
-  "odds": {
-    "loaded": false,
-    "matchedRunnerCount": 0,
-    "unmatchedOddsCount": 0,
-    "lastRefresh": null,
-    "lastError": null
-  },
-  "sim": {
-    "loaded": false,
-    "lastRun": null,
-    "lastError": null
-  },
-  "tickets": {
-    "loaded": false,
-    "lastBuild": null,
-    "lastError": null
-  }
-}
-```
-
-This would make the app much easier to debug.
-
----
-
-# Phase 12 — Do not let live scraping block the UI forever
-
-If `Refresh Card` is doing a live scrape, reconsider that design.
-
-Better pattern:
-
-```text
-Refresh Card
-→ request backend
-→ backend tries source with timeout
-→ backend stores result/state
-→ backend returns loaded/failed/empty response
-```
-
-For anything slow:
-
-```text
-request starts job
-→ returns job id
-→ UI polls job status
-→ UI renders result when done
-```
-
-But for this version, a synchronous request is fine only if it has strict timeouts and clear errors.
-
----
-
-# Phase 13 — Acceptance criteria
-
-## API acceptance
-
-* Swagger loads.
-* `/days` or equivalent returns Friday/Saturday.
-* Friday card endpoint returns either:
-
-  * valid card data, or
-  * structured failure in under the timeout limit.
-* Saturday card endpoint returns either:
-
-  * valid card data, or
-  * structured failure in under the timeout limit.
-* No endpoint hangs indefinitely.
-* Empty data is not treated as success unless intentionally marked as empty.
-* Logs identify where failure happens.
-
-## Frontend acceptance
-
-* Friday page shows loading state after clicking `Refresh Card`.
-* Saturday page shows loading state after clicking `Refresh Card`.
-* Failed API call renders visible error.
-* Empty API response renders visible empty state with reason.
-* Successful card response renders races and runners.
-* Successful odds response updates odds timestamp and odds display.
-* Sim cannot run without card.
-* Tickets cannot build without sim/card.
-* No button click silently does nothing.
-
-## End-to-end acceptance
-
-Using fixture mode:
-
-* Friday card loads.
-* Saturday card loads.
-* Odds load.
-* Sim runs.
-* Tickets build.
-* Budget/base unit are respected.
-* Total ticket cost is visible.
-* App can be used for one full fake day without touching live data.
-
-Using live mode:
-
-* API either loads real data or returns a useful reason why it cannot.
-* No hanging Swagger.
-* No infinite frontend loading.
-* No permanent `never` timestamps after successful actions.
-
----
-
-# Phase 14 — First debugging order
-
-Do this in order:
-
-1. Open browser devtools.
-2. Click `Refresh Card`.
-3. Capture the exact network request.
-4. Record:
-
-   * URL
-   * method
-   * status
-   * response body
-   * timing
-   * console error
-5. Test that same URL in curl.
-6. Test the same route in Swagger.
-7. Add backend logging around that route.
-8. Determine whether the issue is:
-
-   * route missing
-   * route hanging
-   * route returning empty
-   * frontend not rendering response
-9. Fix only that path first.
-10. Repeat for odds, sim, tickets.
-
-No broad rewrites until the first broken link is identified.
-
----
-
-# Phase 15 — Likely actual fixes
-
-Based on the screenshots and Swagger behavior, likely fixes are:
-
-* Add hard timeouts to source calls.
-* Stop route imports from triggering source work.
-* Fix date/day/track config.
-* Add fixture mode.
-* Fix frontend API base URL or proxy route.
-* Align response shapes between frontend and backend.
-* Add visible frontend error states.
-* Make Swagger return structured errors instead of hanging.
-* Ensure backend returns non-empty race data before frontend tries odds/sim/tickets.
-
----
-
-# Final target
-
-At the end of this pass, the app should not be “smart” yet.
-
-It just needs to be honest and wired:
-
-* If data loads, show it.
-* If data is empty, say exactly what is empty.
-* If the source fails, say exactly what failed.
-* If an endpoint hangs today, make it timeout and report.
-* If the frontend and backend disagree on shape, fix the contract.
-* If live data is unreliable, fixture mode must still let the app prove the workflow.
-
-The first win is not a perfect Derby model.
-
-The first win is clicking `Refresh Card` and no longer staring at `never`.
-
-```
+## Suggested order of work for this phase
+
+1. **Today (Tue 4/28)** — write the golden-snapshot test (C) and
+   stale-fallback test (D). Run smoke (A), unit (B), timing (E).
+2. **Wed 4/29** — verify iPad reachability (F). Reboot test the Mac mini.
+   Check Equibase hourly; if entries publish, run Step 2 of Live Cutover.
+3. **Thu 4/30** — if not done Wednesday, do live cutover for both days,
+   confirm warm cache persists, walk the runbook on the iPad with the
+   real card data.
+4. **Fri 5/01 morning** — execute the runbook. Don't touch code.
+
+Friday is for clicking buttons, not for fixing bugs.

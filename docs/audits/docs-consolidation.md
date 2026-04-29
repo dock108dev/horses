@@ -1,160 +1,205 @@
 # Docs Consolidation Pass — 2026-04-28
 
-Reconciled the documentation tree with current code after the SSOT,
-security, error-handling, and cleanup passes had each finished.
-Markdown only; no code changes.
+Latest reconciliation of the documentation tree against current code,
+running after the prior cascade (security → SSOT → error-handling →
+cleanup) had each landed and after the F35 test-tightening fix moved
+the suite from "375 passed, 1 skipped, 1 failed" to "376 passed, 1
+skipped, 0 failed". Markdown only; no code changes.
 
-## Repo shape (verified)
+## Repo shape (verified against current tree)
 
-- Root: `README.md`, `BRAINDUMP.md` (customer-voice; not touched).
-- `/docs/audits/`: `cleanup-report.md`, `error-handling-report.md`,
-  `security-report.md`, `ssot-report.md`, plus this file.
-- Two services in `api/` and `web/` wired by `docker-compose.yml`; data
-  fixtures in `fixtures/pick5/`.
-- No stray top-level docs, no `AIDLC_FUTURES.md`, no
-  `kentuckyderby` adapter or test.
+```
+README.md
+BRAINDUMP.md                  (customer voice; not touched)
+docker-compose.yml
+.env.example
+.gitignore
+api/                          FastAPI backend (model.py, main.py, sim.py,
+                              tickets.py, refresh.py, validate.py, cache.py,
+                              normalize.py + sources/{equibase,twinspires,
+                              fixture,pick5}.py)
+api/tests/                    conftest.py + 13 test modules
+                              (incl. test_friday_e2e.py, test_stale_fallback.py)
+web/                          Next.js App Router SPA
+docs/audits/                  cleanup-report.md, error-handling-report.md,
+                              security-report.md, ssot-report.md,
+                              docs-consolidation.md (this file)
+data/                         priors.json (committed) + .gitignored DBs
+fixtures/pick5/               friday-card.json, friday-odds.json,
+                              saturday-card.json, saturday-odds.json
+```
+
+Cross-checked: no `AIDLC_FUTURES.md`, no `kentuckyderby` adapter or
+test, no `.aidlc/research/*` references in committed code, no stray
+top-level docs.
 
 ## Files added
 
-- `docs/audits/docs-consolidation.md` (this file).
+None. The audit roster (`cleanup`, `error-handling`, `security`,
+`ssot`, `docs-consolidation`) already covers every distinct lens; an
+"architecture overview" doc would only restate `BRAINDUMP.md` plus the
+SSOT module-table.
 
 ## Files deleted
 
-None this pass. The four existing audit reports each cover a distinct
-lens (cleanup, error-handling, security, SSOT) and are cited by inline
-comments at the code sites they justify; none is redundant.
+None. Each existing audit report is cited by inline comments at the
+code sites it justifies (verified by grep — see inventory below); none
+is redundant.
 
 ## Files rewritten in place
 
 ### `README.md`
 
-- Required-configuration list said "the two that matter most" but
-  enumerated three; reworded and added `API_BASE_URL` (which `.env.example`
-  documents and `docker-compose.yml` consumes) so the README matches the
-  shipped variable surface.
-- Documentation section listed only "code-quality, error-handling, and
-  SSOT" reports — `security-report.md` exists on disk but was missing
-  from the README. Added it, plus a pointer to this consolidation log.
+The "Required configuration" section claimed `.env.example` "documents
+every variable", then listed `DERBY_FRIDAY_DATE` /
+`DERBY_SATURDAY_DATE` — which are read by `api/main.py:125-143` but
+are **not** in `.env.example`. Reworded so the README matches the
+shipped surface: variables that *are* in `.env.example` (`API_CORS_ORIGINS`,
+`PICK5_DATA_MODE`, `API_BASE_URL`) are tagged as such, and the
+`DERBY_*_DATE` overrides are tagged as "read by `api/main.py`, not in
+`.env.example`". The regex anchoring claim (`^\d{4}-\d{2}-\d{2}$`) is
+verified at `api/main.py:85`.
+
+### `docs/audits/security-report.md`
+
+The S11 verification block and the "Safe hardening implemented this
+pass" footer both claimed `pytest api/tests` runs **375 passed, 1
+skipped, 1 pre-existing failure**. That number was correct at
+security-pass time but stale today — the error-handling pass that
+followed tightened `test_403_without_fallback_raises` (F35) and the
+suite is now **376 passed, 1 skipped, 0 failed**. Reworded both call
+sites to give the post-cascade total and cite F35 for the chronology.
+No finding text was changed.
 
 ### `docs/audits/ssot-report.md`
 
-- "Reference-stripping" section claimed `security-report.md` and
-  `docs-consolidation.md` were deleted from the repo. That was true at
-  SSOT-pass time (17:30) but a follow-up security pass at 17:38
-  re-authored `security-report.md`, and this pass re-creates the
-  consolidation log. Rewrote the section to record the chronology and
-  to flag that the security pass's inline citations (`security-report
-  S1..S5` from `api/main.py`, `api/sources/fixture.py`) are valid
-  against the current file, not dangling.
-- Sanity-check `grep` block claimed zero hits for `security-report.md`
-  and `docs-consolidation.md`. That snapshot is no longer current
-  (pointers exist again now that the files exist again). Added a note
-  below the grep block clarifying the historical scope so the report
-  stays internally consistent.
-- Inline-comment-cleanup entry for `api/sim.py:96` (`security-report
-  S11`) said the reference was "removed". A short-form
-  `security-report S11` reference still exists at `api/sim.py:115`
-  inside the `TicketSimulationResult` bounds comment. Tightened the
-  entry to describe what was dropped vs. what remained, and added an
-  Escalation (below) for the surviving stale pointer.
-- Added `## Escalations` entry for `api/sim.py:115`.
+Same test-count drift: the report's posture line and the sanity-check
+`grep` block both quoted "375 passed, 1 skipped, 1 failed". Tightened
+the posture line to record the SSOT-pass-time total *and* the
+post-cascade total (376 passed, 1 skipped) with a pointer to F35.
+Added a one-line annotation under the sanity-check `grep` block so
+the historical snapshot is preserved without contradicting current
+state.
 
 ### `docs/audits/error-handling-report.md`
 
-- F34 cited `web/components/SimulationSummary.tsx:25–37` and
-  `TicketBuilder.tsx:52–67` for the formatter NaN guard. The cleanup
-  pass moved the formatters to `web/lib/format.ts`; the cited line
-  ranges no longer house formatters and the claimed inline comments
-  were never present at those sites. Re-pointed F34 at
-  `web/lib/format.ts:6–24` and rewrote the prose so the rationale is
-  attributed to the shared module's docstring (which already captures
-  the NaN/Infinity/null contract), not to per-component cites.
-- Top-of-report summary item, "Categorization → Needs documentation"
-  section, and "Verification" section all had to be tightened to match
-  the new F34 location and to stop claiming inline F34 cites that
-  don't exist.
+Three line-number drifts reconciled against current code:
+
+- **F2** (`_safe_close`): `api/sources/twinspires.py:476` →
+  `:478`. Updated in the findings table and in the per-finding detail.
+- **F33** (TwinSpires 404 → None): `api/sources/twinspires.py:428` →
+  `:432`. Updated in the findings table.
+- **F33 detail body** range `:424–429` → `:429–434` to match the
+  current `if getattr(resp, "status_code", 200) == 404:` block.
+
+No finding semantics changed — these are pure code-position updates
+after the security and cleanup passes added inline rationale comments
+above each suppression site.
 
 ### `docs/audits/cleanup-report.md`
 
-- "Files still >500 LOC" entry for `TicketBuilder.tsx` listed `553
-  LOC`; current file is `537 LOC` (the formatter extraction trimmed it
-  after the inline `~553` note was written). Updated the headline LOC
-  and added a one-sentence note acknowledging the inline drift so the
-  inline approximation `~553` and the report's `537` no longer look
-  like they contradict each other.
-- "Consistency changes made" entry for the same file noted the LOC
-  refresh as `544 → 553`; appended `, since drifted to 537 after the
-  formatter extraction` so the post-pass count is documented.
+Verified accurate against current LOC (`wc -l`): `api/main.py` 820,
+`api/model.py` 1374, `api/tickets.py` 812,
+`api/sources/twinspires.py` 531, `api/sources/equibase.py` 501,
+`web/components/TicketBuilder.tsx` 537,
+`api/tests/test_probability_model.py` 1654,
+`api/tests/test_main.py` 800, `api/tests/test_tickets.py` 656. The
+post-pass test count `376 passed, 1 skipped` matches the current run.
+No edits this pass.
 
 ## Statements removed because unverifiable
 
-- `ssot-report.md` "Reference-stripping" header copy implying the
-  `security-report.md` deletion was permanent — it isn't, the file is
-  back. Replaced with a chronological description.
-- `ssot-report.md` sanity-check `grep` hits of `0` for
-  `security-report.md` and `docs-consolidation.md` — both files now
-  exist and are referenced; left the grep block as a snapshot but
-  added a clarifying note.
-- `error-handling-report.md` F34 line ranges
-  (`SimulationSummary.tsx:25–37`, `TicketBuilder.tsx:52–67`) — those
-  lines no longer house formatters.
-- `error-handling-report.md` claim that "inline comments were added at
-  the F32 / F33 / F34 sites" — verified: F32 comment exists at
-  `api/sources/fixture.py:134`, F33 comment exists at
-  `api/sources/twinspires.py:427`, but no F34 comment exists in the
-  components or in `web/lib/format.ts`. Restricted the claim to F32
-  and F33; described F34's documentation home (the format.ts module
-  docstring) explicitly.
+- `security-report.md` — "1 pre-existing failure" claim in the S11
+  test-impact and footer (replaced with "0 failures, see F35 for the
+  chronology").
+- `ssot-report.md` — "375 passed, 1 skipped, 1 failed" as the *current*
+  posture (kept as the SSOT-pass-time snapshot, augmented with the
+  post-cascade total).
+- `README.md` — ".env.example documents every variable" (it doesn't —
+  the `DERBY_*_DATE` overrides are read directly by code).
+
+## Inline-citation inventory (verified resolvable against current docs)
+
+Every `F\d+` / `S\d+` / `error-handling-report` / `security-report`
+/ `cleanup-report` / `ssot-report` cite in committed code resolves to
+a section in the corresponding audit report (verified by grep across
+`api/`, `web/`, `*.toml`, `*.mjs`):
+
+| Cite                                             | Code site                                          |
+| ------------------------------------------------ | -------------------------------------------------- |
+| `cleanup-report.md` "Files still >500 LOC"       | `api/main.py:14`, `api/model.py:37,39`, `api/tickets.py:55`, `api/sources/twinspires.py:12`, `web/components/TicketBuilder.tsx:7` |
+| `security-report.md` S2                          | `web/app/layout.tsx:11`                            |
+| `security-report.md` S3                          | `api/main.py:387,549,637,685`, `api/tests/test_stale_fallback.py:9` |
+| `security-report.md` S4                          | `api/main.py:573,590`                              |
+| `security-report.md` S5                          | `api/sources/fixture.py:37`                        |
+| `security-report.md` S11                         | `api/main.py:244`, `web/next.config.mjs:10`        |
+| `security-report.md` S12                         | `api/pyproject.toml:34`                            |
+| `error-handling-report.md` F1                    | `api/sources/pick5.py:96`                          |
+| `error-handling-report.md` F2                    | `api/cache.py:129`, `api/sources/equibase.py:161`, `api/sources/twinspires.py:478` |
+| `error-handling-report.md` F3                    | `api/main.py:386`                                  |
+| `error-handling-report.md` F4                    | `api/refresh.py:59`                                |
+| `error-handling-report.md` F5                    | `api/sources/twinspires.py:132`                    |
+| `error-handling-report.md` F6                    | `api/cache.py:185`                                 |
+| `error-handling-report.md` F8                    | `api/main.py:635,684`                              |
+| `error-handling-report.md` F9                    | `api/sources/pick5.py:166`                         |
+| `error-handling-report.md` F11                   | `api/normalize.py:78,86`                           |
+| `error-handling-report.md` F12                   | `api/sources/pick5.py:105`                         |
+| `error-handling-report.md` F13                   | `api/sources/twinspires.py:327`                    |
+| `error-handling-report.md` F14                   | `api/sources/equibase.py:222`                      |
+| `error-handling-report.md` F15                   | `api/sources/twinspires.py:493`                    |
+| `error-handling-report.md` F16                   | `api/tickets.py:687`                               |
+| `error-handling-report.md` F17                   | `api/main.py:567,579`, `web/lib/api.ts:47`         |
+| `error-handling-report.md` F22                   | `api/model.py:458`                                 |
+| `error-handling-report.md` F23                   | `api/model.py:715`                                 |
+| `error-handling-report.md` F24                   | `api/tickets.py:639`                               |
+| `error-handling-report.md` F32                   | `api/sources/fixture.py:134`                       |
+| `error-handling-report.md` F33                   | `api/sources/twinspires.py:432`                    |
+| `error-handling-report.md` F35                   | `api/sources/twinspires.py:268`, `api/tests/test_twinspires.py:304` |
+| `ssot-report.md`                                 | `api/model.py:39`                                  |
+
+No dangling cites surfaced. The lone broken pointer
+(`api/sim.py:115` → `security-report S11`) that was carried as an
+Escalation in the prior `docs-consolidation.md` revision was resolved
+by the SSOT pass (the trailing clause is gone; the comment now reads
+`"Bounds match the producer ranges in api.tickets."`). Verified at
+`api/sim.py:115`.
 
 ## Intentional doc gaps left for future work
 
-None. Every report covers a single lens and the audit roster is small
-enough that a separate "architecture overview" doc would only
-duplicate what `BRAINDUMP.md` and the audit reports already say.
+None. The roster is complete and every report covers a distinct lens:
+
+- `cleanup-report.md` — code-quality (LOC budget, dead code, duplicates).
+- `error-handling-report.md` — broad-catch / fallback / suppression
+  contracts (F-series).
+- `security-report.md` — trust boundaries, headers, redaction,
+  request-bound bounds (S-series).
+- `ssot-report.md` — single-source-of-truth designations and the diff
+  against `b9d3ec8`.
+- `docs-consolidation.md` — this file; reconciliation log between the
+  reports and the code/config.
 
 ## Escalations
 
-### `api/sim.py:115` — broken inline reference to `security-report S11`
-
-The `TicketSimulationResult` bounds comment cites `security-report
-S11`. The current `docs/audits/security-report.md` only contains
-S1..S10; S11 lived in the prior (deleted) revision and was about
-Pass-2 score-field bounds — the re-authored report does not have an
-equivalent finding ID. The rationale sentence in the comment ("Bounds
-match the producer ranges") is self-explanatory and remains correct;
-only the trailing pointer is broken.
-
-The SSOT report (now updated) records the chronology — an earlier
-removal pass dropped the full-path version of the same pointer from
-`api/sim.py` and `api/model.py:99`, but a short-form variant at
-`api/sim.py:115` survived. The docs-only pass cannot edit Python
-source.
-
-**Smallest concrete next action**: in `api/sim.py:115`, drop the
-trailing `See security-report S11.` clause. The surrounding rationale
-already documents the constraint.
-
-**Owner**: app maintainer (single-developer project).
+None. The single Escalation carried by the prior
+`docs-consolidation.md` revision (`api/sim.py:115` →
+`security-report S11`) was resolved by the SSOT pass; verified above.
 
 ## Verification
 
-- `wc -l` confirmed the LOC counts for every file referenced in the
-  cleanup report. Drifts ≤3 lines (`api/main.py`: 815 vs. 816,
-  `api/model.py`: 1374 vs. 1377, `api/tickets.py`: 810 vs. 812,
-  `api/tests/test_main.py`: 931 vs. 932) are within the inline `~`
-  approximation and were not edited. The one meaningful drift
-  (`TicketBuilder.tsx`: 537 vs. 553) was reconciled in the cleanup
-  report.
-- `grep` confirmed every inline `S{n}` / `F{n}` cite in `api/`,
-  `web/`, `.env.example`, `docker-compose.yml` resolves to a section
-  in the corresponding audit report — except `api/sim.py:115`, which
-  is now tracked under Escalations.
-- Every audit report's date / test-count line (`373 passed`) was
-  verified consistent across `cleanup-report.md`, `security-report.md`,
-  `ssot-report.md`, and `error-handling-report.md`.
-- `README.md` deployment claims (`./data` mount, `next dev`,
-  `uvicorn api.main:app`) verified against `docker-compose.yml`,
-  `web/Dockerfile`, and `api/Dockerfile`.
-- `.env.example` variables verified against
-  `docker-compose.yml` and code references in `api/main.py` and
-  `api/sources/fixture.py`.
+- `pytest api/tests` — **376 passed, 1 skipped** (current). The skip
+  is the deferred `test_friday_pick5_simulate_golden_snapshot`,
+  blocked on adding a `seed` parameter to `SimulateRequest`.
+- `wc -l` confirms every LOC count cited in `cleanup-report.md`
+  (drifts ≤3 lines are within the inline `~` approximation).
+- `grep -RIn "AIDLC_FUTURES\|kentuckyderby\|KentuckyDerby\|\.aidlc/research"`
+  → 0 hits in committed code; only narrative mentions inside the audit
+  reports.
+- Every `F\d+` / `S\d+` cite in the inline inventory above resolves to
+  a section in the matching audit report.
+- README.md deployment claims (`./data` mount, `next dev`,
+  `uvicorn api.main:app`, `restart: unless-stopped`) verified against
+  `docker-compose.yml`, `web/Dockerfile`, and `api/Dockerfile`.
+- `.env.example` variables cross-checked against `docker-compose.yml`
+  and code references in `api/main.py` and `api/sources/fixture.py`;
+  the README's list now matches the documented surface (and flags the
+  `DERBY_*_DATE` overrides as code-only).

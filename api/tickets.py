@@ -47,7 +47,7 @@ When the underlying simulation fails the builder falls back to selecting
 all three by ascending cost, but still emits exactly three labeled
 tickets so the output contract holds.
 
-LOC note: ~810 LOC, over the 500-line guideline. Candidate-pool
+LOC note: ~812 LOC, over the 500-line guideline. Candidate-pool
 construction, budget fitting, and Balanced/Safer/Upside scoring all
 share the same ``Ticket`` / ``Race`` / ``horses_by_id`` plumbing; a
 split would force every internal helper to thread the candidate pool
@@ -443,11 +443,13 @@ def _leg_probability_sum(
 
 
 def _efficiency_ratio(fp: float, n_leg: int, p_leg: float) -> float:
-    """Ranking-equivalent of ΔP/ΔCost — see ``spend-efficiency-formula.md``.
+    """Ranking-equivalent of ΔP_ticket / ΔCost across legs.
 
-    Returns ``+inf`` for a positive-probability candidate on a zero-coverage
-    leg so the candidate sorts above any normal score (it improves a
-    degenerate leg the most). Returns ``0.0`` for a zero-probability
+    Within a single leg this is monotone in ``fp``; the ``n_leg / p_leg``
+    factor lets the trim/add loops compare candidates across legs of
+    different width. Returns ``+inf`` for a positive-probability candidate
+    on a zero-coverage leg so it sorts above any normal score (it improves
+    a degenerate leg the most). Returns ``0.0`` for a zero-probability
     candidate regardless of leg state.
     """
     if fp <= 0:

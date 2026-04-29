@@ -26,3 +26,15 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["api*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# ``live`` is deselected by default, so tests carrying this marker are not
+# run during ordinary CI / pre-commit cycles. Do not apply ``@pytest.mark.live``
+# to security-regression tests — see docs/audits/security-report.md S12. If
+# a regression check needs a real external service, gate it on a separate
+# marker so the default run still enforces the security invariant.
+markers = [
+    "live: marks tests that call real external services (deselected by default)",
+]
+addopts = "-m 'not live'"

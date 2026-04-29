@@ -6,7 +6,7 @@ a homepage GET, sends browser-like headers, throttles odds polls to a 30s
 per-race floor, and auto-retries via ``curl_cffi`` when plain ``httpx``
 gets 403'd. Scratches are detected by diffing successive program polls.
 
-LOC note: ~526 LOC, over the 500-line guideline. Adapter construction,
+LOC note: ~531 LOC, over the 500-line guideline. Adapter construction,
 JSON parsing, scratch diffing, the curl_cffi fallback wrapper, and HTTP
 plumbing are tightly coupled to the same private state on
 ``TwinSpiresAdapter``. See ``docs/audits/cleanup-report.md`` "Files
@@ -261,6 +261,11 @@ class TwinSpiresAdapter:
         if self.http_client is None:
             self.http_client = httpx.Client()
             self._owns_http_client = True
+        # When the caller passes ``fallback_client=None`` we silently auto-build
+        # a curl_cffi fallback if the optional dep is present. This is a
+        # constructor default, not error swallowing, but it does mean the F15
+        # "no fallback configured → RuntimeError" branch is only reached when
+        # curl_cffi is absent. See docs/audits/error-handling-report.md F35.
         if self.fallback_client is None:
             built = _build_curl_cffi_client(
                 impersonate=self.impersonate, timeout=self.timeout
